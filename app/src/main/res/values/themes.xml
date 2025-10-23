@@ -1,0 +1,28 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Base.Theme.Byte2Bites" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">@color/primary_green</item>
+        <item name="colorPrimaryVariant">@color/primary_green_dark</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/primary_green</item>
+        <item name="colorOnSecondary">@color/white</item>
+
+        <!-- FIX: Status bar now matches the top of the gradient -->
+        <item name="android:statusBarColor">@color/primary_green_dark</item>
+
+        <!-- FIX: Navigation bar now matches the bottom of the gradient -->
+        <item name="android:navigationBarColor">@color/primary_green</item>
+
+        <item name="android:windowBackground">@color/background_dark</item>
+    </style>
+
+    <style name="Theme.Byte2Bites" parent="Base.Theme.Byte2Bites" />
+
+    <!-- Special theme for the light Welcome page -->
+    <style name="Theme.Byte2Bites.LightWelcome" parent="Base.Theme.Byte2Bites">
+        <item name="android:statusBarColor">@color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/white</item>
+    </style>
+</resources>
