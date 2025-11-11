@@ -19,11 +19,11 @@ class WelcomeActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
 
         // If user is already logged in, go directly to Profile
-        /*if (auth.currentUser != null) {
+        if (auth.currentUser != null) {
             startActivity(Intent(this, HomeActivity::class.java))
             finish()
             return
-        }*/
+        }
 
         // --- FIX: Added button listeners back ---
         binding.btnLogin.setOnClickListener {
