@@ -15,13 +15,17 @@ class ProductDetailsActivity : AppCompatActivity() {
     private val auth by lazy { FirebaseAuth.getInstance() }
     private val db by lazy { FirebaseDatabase.getInstance() }
 
-    private lateinit var product: CartItem
+    private lateinit var productItem: CartItem   // what we’ll add to cart
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityProductDetailsBinding.inflate(layoutInflater)
         setContentView(b.root)
 
+        // Back arrow
+        b.ivBack.setOnClickListener { finish() }
+
+        // Read extras from intent
         val name = intent.getStringExtra("name") ?: ""
         val price = intent.getStringExtra("price") ?: ""
         val imageUrl = intent.getStringExtra("imageUrl") ?: ""
@@ -29,6 +33,7 @@ class ProductDetailsActivity : AppCompatActivity() {
         val productID = intent.getStringExtra("productID") ?: ""
         val sellerUid = intent.getStringExtra("sellerUid") ?: ""
 
+        // Bind UI
         b.tvName.text = name
         b.tvPrice.text = price
         b.tvDescription.text = description
@@ -36,7 +41,7 @@ class ProductDetailsActivity : AppCompatActivity() {
             .placeholder(R.drawable.ic_profile_placeholder)
             .into(b.ivImage)
 
-        product = CartItem(
+        productItem = CartItem(
             productID = productID,
             name = name,
             price = price,
@@ -48,7 +53,7 @@ class ProductDetailsActivity : AppCompatActivity() {
         b.btnAddToCart.setOnClickListener { prepareAddToCart() }
     }
 
-    /** Enforce single-restaurant cart */
+    /** Enforce single-restaurant cart with confirm dialog when switching */
     private fun prepareAddToCart() {
         val uid = auth.currentUser?.uid ?: run {
             Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show()
@@ -62,29 +67,25 @@ class ProductDetailsActivity : AppCompatActivity() {
         metaRef.child("sellerUid").get().addOnSuccessListener { metaSnap ->
             val currentSeller = metaSnap.getValue(String::class.java)
 
-            // 1) No seller yet, or same seller -> just add
             if (currentSeller.isNullOrEmpty() ||
-                currentSeller == product.sellerUid ||
-                product.sellerUid.isEmpty()
+                currentSeller == productItem.sellerUid ||
+                productItem.sellerUid.isEmpty()
             ) {
                 addItemToCart(cartRef, metaRef)
             } else {
-                // 2) Different seller -> ask user
                 AlertDialog.Builder(this)
                     .setTitle("Start new cart?")
                     .setMessage("Starting a new order will clear your current cart.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Start") { _, _ ->
-                        // Clear old cart then add
                         cartRef.removeValue().addOnCompleteListener {
-                            metaRef.child("sellerUid").setValue(product.sellerUid)
+                            metaRef.child("sellerUid").setValue(productItem.sellerUid)
                             addItemToCart(cartRef, metaRef)
                         }
                     }
                     .show()
             }
         }.addOnFailureListener {
-            // if meta read fails, fall back to normal add
             addItemToCart(cartRef, metaRef)
         }
     }
@@ -95,16 +96,14 @@ class ProductDetailsActivity : AppCompatActivity() {
     ) {
         val uid = auth.currentUser?.uid ?: return
 
-        // ensure meta sellerUid is set
-        if (!product.sellerUid.isNullOrEmpty()) {
-            metaRef.child("sellerUid").setValue(product.sellerUid)
+        if (!productItem.sellerUid.isNullOrEmpty()) {
+            metaRef.child("sellerUid").setValue(productItem.sellerUid)
         }
 
-        val itemRef = cartRef.child(product.productID)
-
+        val itemRef = cartRef.child(productItem.productID)
         itemRef.get().addOnSuccessListener { snap ->
             val currentQty = snap.child("quantity").getValue(Int::class.java) ?: 0
-            val newItem = product.copy(quantity = currentQty + 1)
+            val newItem = productItem.copy(quantity = currentQty + 1)
             itemRef.setValue(newItem).addOnSuccessListener {
                 Toast.makeText(this, "Added to cart", Toast.LENGTH_SHORT).show()
                 finish()

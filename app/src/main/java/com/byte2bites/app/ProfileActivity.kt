@@ -56,6 +56,8 @@ class ProfileActivity : AppCompatActivity() {
         binding = ActivityProfileBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        binding.ivBack.setOnClickListener { finish() }
+
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
