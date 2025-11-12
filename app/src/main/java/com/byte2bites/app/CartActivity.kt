@@ -47,13 +47,47 @@ class CartActivity : AppCompatActivity() {
                     items.clear()
                     items.addAll(list)
                     adapter.submit(items)
-                    b.tvTotal.text = "Total: ${formatCurrency(totalCents(items))}"
+
+                    updateTotals()
                 }
 
                 override fun onCancelled(error: DatabaseError) {
                     Toast.makeText(this@CartActivity, error.message, Toast.LENGTH_SHORT).show()
                 }
             })
+    }
+
+    /** compute items total + delivery fee and show in tvTotal */
+    private fun updateTotals() {
+        val uid = auth.currentUser?.uid ?: return
+        val itemsTotal = totalCents(items)
+
+        // find which seller this cart belongs to
+        db.reference.child("Buyers").child(uid).child("cartMeta").child("sellerUid")
+            .get()
+            .addOnSuccessListener { metaSnap ->
+                val sellerUid = metaSnap.getValue(String::class.java)
+
+                if (sellerUid.isNullOrEmpty()) {
+                    // no restaurant found – just show items total
+                    b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
+                    return@addOnSuccessListener
+                }
+
+                db.reference.child("Sellers").child(sellerUid).child("deliveryInfo")
+                    .get()
+                    .addOnSuccessListener { feeSnap ->
+                        val feeStr = feeSnap.getValue(String::class.java) ?: "0"
+                        val deliveryFeeCents = parsePrice(feeStr)
+                        val grandTotal = itemsTotal + deliveryFeeCents
+
+                        b.tvTotal.text =
+                            "Items: ${formatCurrency(itemsTotal)}  + Delivery: ${formatCurrency(deliveryFeeCents)}  = Total: ${formatCurrency(grandTotal)}"
+                    }
+                    .addOnFailureListener {
+                        b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
+                    }
+            }
     }
 
     private fun inc(item: CartItem) = setQty(item, item.quantity + 1)
@@ -88,6 +122,16 @@ class CartActivity : AppCompatActivity() {
         }
 
         val buyerRef = db.reference.child("Buyers").child(uid)
+        val orderItems = items.toList()
+
+        // Cart should only contain one restaurant
+        val sellerUids = orderItems.map { it.sellerUid }.distinct().filter { it.isNotEmpty() }
+        if (sellerUids.size != 1) {
+            Toast.makeText(this, "Cart must contain items from one restaurant", Toast.LENGTH_LONG)
+                .show()
+            return
+        }
+        val sellerUidForCart = sellerUids.first()
 
         // 1) Get address
         buyerRef.child("address").get()
@@ -103,56 +147,80 @@ class CartActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
-                // 2) Build order
-                val orderId = db.reference.push().key ?: System.currentTimeMillis().toString()
-                val orderItems = items.toList()
-                val orderTotal = totalCents(orderItems)
-                val orderTimestamp = System.currentTimeMillis()
+                // 2) Get delivery fee from seller (deliveryInfo)
+                db.reference.child("Sellers").child(sellerUidForCart).child("deliveryInfo")
+                    .get()
+                    .addOnSuccessListener { feeSnap ->
+                        val deliveryStr = feeSnap.getValue(String::class.java) ?: "0"
+                        val deliveryFeeCents = parsePrice(deliveryStr)
 
-                val order = Order(
-                    orderId = orderId,
-                    buyerUid = uid,
-                    totalCents = orderTotal,
-                    address = addr,
-                    timestamp = orderTimestamp,
-                    items = orderItems
-                )
+                        // 3) Build order
+                        val orderId =
+                            db.reference.push().key ?: System.currentTimeMillis().toString()
+                        val itemsTotalCents = totalCents(orderItems)
+                        val orderTotal = itemsTotalCents + deliveryFeeCents
+                        val orderTimestamp = System.currentTimeMillis()
 
-                // 3) Prepare multi-path updates
-                val updates = hashMapOf<String, Any?>()
+                        val order = Order(
+                            orderId = orderId,
+                            buyerUid = uid,
+                            totalCents = orderTotal,
+                            address = addr,
+                            timestamp = orderTimestamp,
+                            items = orderItems,
+                            deliveryFeeCents = deliveryFeeCents
+                        )
 
-                // Buyer’s orders
-                updates["Buyers/$uid/orders/$orderId"] = order
+                        // 4) Prepare multi-path updates
+                        val updates = hashMapOf<String, Any?>()
 
-                // Each seller’s view of the order
-                orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
-                    if (!sellerUid.isNullOrEmpty()) {
-                        val sellerBase = "Sellers/$sellerUid/orders/$orderId"
-                        updates["$sellerBase/orderId"] = orderId
-                        updates["$sellerBase/buyerUid"] = uid
-                        updates["$sellerBase/timestamp"] = orderTimestamp
-                        updates["$sellerBase/totalCents"] = totalCents(sellerItems)
-                        updates["$sellerBase/items"] = sellerItems
-                    }
-                }
+                        // Buyer’s orders
+                        val buyerOrderPath = "Buyers/$uid/orders/$orderId"
+                        updates[buyerOrderPath] = order
 
-                // 4) Commit updates + clear cart, update quantities
-                db.reference.updateChildren(updates)
-                    .addOnCompleteListener { task ->
-                        if (task.isSuccessful) {
-                            updateProductQuantities(orderItems)
+                        // Each seller’s view of the order
+                        orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
+                            if (!sellerUid.isNullOrEmpty()) {
+                                val sellerBase = "Sellers/$sellerUid/orders/$orderId"
+                                val itemsTotalForSeller = totalCents(sellerItems)
+                                val totalForSeller =
+                                    itemsTotalForSeller + if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
 
-                            buyerRef.child("cart").removeValue()
-                            buyerRef.child("cartMeta").removeValue()
-                            Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
-                            finish()
-                        } else {
-                            Toast.makeText(
-                                this,
-                                "Failed to place order: ${task.exception?.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
+                                updates["$sellerBase/orderId"] = orderId
+                                updates["$sellerBase/buyerUid"] = uid
+                                updates["$sellerBase/timestamp"] = orderTimestamp
+                                updates["$sellerBase/totalCents"] = totalForSeller
+                                updates["$sellerBase/items"] = sellerItems
+                                updates["$sellerBase/deliveryFeeCents"] =
+                                    if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
+                            }
                         }
+
+                        // 5) Commit updates + clear cart, cartMeta, update quantities
+                        db.reference.updateChildren(updates)
+                            .addOnCompleteListener { task ->
+                                if (task.isSuccessful) {
+                                    updateProductQuantities(orderItems)
+
+                                    buyerRef.child("cart").removeValue()
+                                    buyerRef.child("cartMeta").removeValue()
+                                    Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
+                                    finish()
+                                } else {
+                                    Toast.makeText(
+                                        this,
+                                        "Failed to place order: ${task.exception?.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(
+                            this,
+                            "Failed to load delivery fee: ${e.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
             }
             .addOnFailureListener { e ->
@@ -161,7 +229,7 @@ class CartActivity : AppCompatActivity() {
             }
     }
 
-    // Decrease quantity for each ordered product
+    // Decrease quantity (stored as STRING like "1114") for each ordered product
     private fun updateProductQuantities(orderItems: List<CartItem>) {
         for (item in orderItems) {
             val sellerUid = item.sellerUid
@@ -175,28 +243,17 @@ class CartActivity : AppCompatActivity() {
                 .child(productId)
                 .child("quantity")
 
-            qtyRef.runTransaction(object : Transaction.Handler {
-                override fun doTransaction(currentData: MutableData): Transaction.Result {
-                    val current = currentData.getValue(Int::class.java) ?: return Transaction.success(currentData)
-                    val newQty = (current - item.quantity).coerceAtLeast(0)
-                    currentData.value = newQty
-                    return Transaction.success(currentData)
-                }
-
-                override fun onComplete(
-                    error: DatabaseError?,
-                    committed: Boolean,
-                    currentData: DataSnapshot?
-                ) {
-                    // you can log errors if needed
-                }
-            })
+            qtyRef.get().addOnSuccessListener { snap ->
+                val currentStr = snap.getValue(String::class.java) ?: return@addOnSuccessListener
+                val current = currentStr.toIntOrNull() ?: return@addOnSuccessListener
+                val newQty = (current - item.quantity).coerceAtLeast(0)
+                qtyRef.setValue(newQty.toString())
+            }
         }
     }
 
     // helpers
 
-    // price stored like "150" or "$150" -> treat as whole units, convert to cents
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
         val digitsOnly = priceString.filter { it.isDigit() }

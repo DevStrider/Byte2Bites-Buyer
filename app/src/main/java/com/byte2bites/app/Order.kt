@@ -6,5 +6,6 @@ data class Order(
     val totalCents: Long = 0L,
     val address: Address? = null,
     val timestamp: Long = 0L,
-    val items: List<CartItem> = emptyList()
+    val items: List<CartItem> = emptyList(),
+    val deliveryFeeCents: Long = 0L
 )
