@@ -57,8 +57,23 @@ class SellerProductsActivity : AppCompatActivity() {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val list = ArrayList<Product>()
                     for (pSnap in snapshot.children) {
-                        val p = pSnap.getValue(Product::class.java)
-                        if (p != null) list.add(p.copy(sellerUid = sellerUid))
+                        val productID =
+                            pSnap.child("productID").getValue(String::class.java) ?: pSnap.key ?: ""
+
+                        val name = pSnap.child("name").getValue(String::class.java)
+                        val price = pSnap.child("price").getValue(String::class.java)
+                        val description = pSnap.child("description").getValue(String::class.java)
+                        val imageUrl = pSnap.child("imageUrl").getValue(String::class.java)
+
+                        val p = Product(
+                            productID = productID,
+                            name = name,
+                            price = price,
+                            description = description,
+                            imageUrl = imageUrl,
+                            sellerUid = sellerUid
+                        )
+                        list.add(p)
                     }
                     products.clear()
                     products.addAll(list)
@@ -66,7 +81,8 @@ class SellerProductsActivity : AppCompatActivity() {
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Toast.makeText(this@SellerProductsActivity, error.message, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@SellerProductsActivity, error.message, Toast.LENGTH_SHORT)
+                        .show()
                 }
             })
     }

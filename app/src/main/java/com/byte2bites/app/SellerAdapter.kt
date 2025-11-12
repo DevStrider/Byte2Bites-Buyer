@@ -3,6 +3,7 @@ package com.byte2bites.app
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.bumptech.glide.Glide
 import com.byte2bites.app.databinding.ItemSellerBinding
 
 class SellerAdapter(
@@ -14,6 +15,17 @@ class SellerAdapter(
         fun bind(seller: Seller) {
             b.tvName.text = seller.name ?: "Restaurant"
             b.tvPhone.text = seller.phone ?: ""
+
+            val url = seller.profileImageUrl
+            if (!url.isNullOrEmpty()) {
+                Glide.with(b.ivLogo.context)
+                    .load(url)
+                    .placeholder(R.drawable.ic_profile_placeholder)
+                    .into(b.ivLogo)
+            } else {
+                b.ivLogo.setImageResource(R.drawable.ic_profile_placeholder)
+            }
+
             b.root.setOnClickListener { onClick(seller) }
         }
     }

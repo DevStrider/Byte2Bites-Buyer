@@ -136,11 +136,14 @@ class CartActivity : AppCompatActivity() {
                     }
                 }
 
-                // 4) Commit updates + clear cart
+                // 4) Commit updates + clear cart, update quantities
                 db.reference.updateChildren(updates)
                     .addOnCompleteListener { task ->
                         if (task.isSuccessful) {
+                            updateProductQuantities(orderItems)
+
                             buyerRef.child("cart").removeValue()
+                            buyerRef.child("cartMeta").removeValue()
                             Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
                             finish()
                         } else {
@@ -158,10 +161,42 @@ class CartActivity : AppCompatActivity() {
             }
     }
 
-    // helpers – SUPER simple now
+    // Decrease quantity for each ordered product
+    private fun updateProductQuantities(orderItems: List<CartItem>) {
+        for (item in orderItems) {
+            val sellerUid = item.sellerUid
+            val productId = item.productID
+            if (sellerUid.isEmpty() || productId.isEmpty()) continue
 
-    // Your DB stores price as something like "200".
-    // We’ll treat that as 200 units and convert to "cents" by *100.
+            val qtyRef = db.reference
+                .child("Sellers")
+                .child(sellerUid)
+                .child("products")
+                .child(productId)
+                .child("quantity")
+
+            qtyRef.runTransaction(object : Transaction.Handler {
+                override fun doTransaction(currentData: MutableData): Transaction.Result {
+                    val current = currentData.getValue(Int::class.java) ?: return Transaction.success(currentData)
+                    val newQty = (current - item.quantity).coerceAtLeast(0)
+                    currentData.value = newQty
+                    return Transaction.success(currentData)
+                }
+
+                override fun onComplete(
+                    error: DatabaseError?,
+                    committed: Boolean,
+                    currentData: DataSnapshot?
+                ) {
+                    // you can log errors if needed
+                }
+            })
+        }
+    }
+
+    // helpers
+
+    // price stored like "150" or "$150" -> treat as whole units, convert to cents
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
         val digitsOnly = priceString.filter { it.isDigit() }

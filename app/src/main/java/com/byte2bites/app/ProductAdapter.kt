@@ -1,7 +1,6 @@
 package com.byte2bites.app
 
 import android.view.LayoutInflater
-import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
@@ -16,7 +15,17 @@ class ProductAdapter(
         fun bind(p: Product) {
             b.tvName.text = p.name ?: ""
             b.tvPrice.text = p.price ?: ""
-            Glide.with(b.ivThumb).load(p.imageUrl).placeholder(R.drawable.ic_profile_placeholder).into(b.ivThumb)
+
+            val url = p.imageUrl
+            if (!url.isNullOrEmpty()) {
+                Glide.with(b.ivThumb.context)
+                    .load(url)
+                    .placeholder(R.drawable.ic_profile_placeholder)
+                    .into(b.ivThumb)
+            } else {
+                b.ivThumb.setImageResource(R.drawable.ic_profile_placeholder)
+            }
+
             b.root.setOnClickListener { onClick(p) }
         }
     }
@@ -25,7 +34,13 @@ class ProductAdapter(
         val b = ItemProductBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return VH(b)
     }
+
     override fun onBindViewHolder(holder: VH, position: Int) = holder.bind(data[position])
     override fun getItemCount(): Int = data.size
-    fun submit(list: List<Product>) { data.clear(); data.addAll(list); notifyDataSetChanged() }
+
+    fun submit(list: List<Product>) {
+        data.clear()
+        data.addAll(list)
+        notifyDataSetChanged()
+    }
 }

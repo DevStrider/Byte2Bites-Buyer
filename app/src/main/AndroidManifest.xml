@@ -50,5 +50,10 @@
         <!-- NEW: cart / checkout -->
         <activity android:name=".CartActivity" android:exported="false" />
 
+        <activity
+            android:name=".OrdersActivity"
+            android:exported="false" />
+
+
     </application>
 </manifest>
