@@ -2,6 +2,7 @@ package com.byte2bites.app
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -44,7 +45,11 @@ class CartActivity : AppCompatActivity() {
         b.rvCart.layoutManager = LinearLayoutManager(this)
         b.rvCart.adapter = adapter
 
-        // Checkout
+        // Recalculate totals when user switches pickup / delivery
+        b.rgDeliveryType.setOnCheckedChangeListener { _, _ ->
+            updateTotals()
+        }
+
         b.btnCheckout.setOnClickListener { checkout() }
 
         loadCart()
@@ -65,6 +70,7 @@ class CartActivity : AppCompatActivity() {
                     adapter.submit(items)
                     updateTotals()
                 }
+
                 override fun onCancelled(error: DatabaseError) {
                     Toast.makeText(this@CartActivity, error.message, Toast.LENGTH_SHORT).show()
                 }
@@ -76,13 +82,15 @@ class CartActivity : AppCompatActivity() {
         val uid = auth.currentUser?.uid ?: return
         val itemsTotal = totalCents(items)
 
-        // If pickup selected -> no delivery fee
         val selectedDeliveryType = getSelectedDeliveryType()
+
+        // PICKUP -> absolutely NO delivery fee
         if (selectedDeliveryType == "PICKUP") {
             b.tvTotal.text = "Total (pickup): ${formatCurrency(itemsTotal)}"
             return
         }
 
+        // DELIVERY -> use exactly deliveryInfo from seller
         db.reference.child("Buyers").child(uid).child("cartMeta").child("sellerUid")
             .get()
             .addOnSuccessListener { metaSnap ->
@@ -91,18 +99,16 @@ class CartActivity : AppCompatActivity() {
                     b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
                     return@addOnSuccessListener
                 }
-                // Base fee from seller node (old logic)
+
                 db.reference.child("Sellers").child(sellerUid).child("deliveryInfo")
                     .get()
                     .addOnSuccessListener { feeSnap ->
                         val feeStr = feeSnap.getValue(String::class.java) ?: "0"
-                        val baseDeliveryFeeCents = parsePrice(feeStr)
-
-                        // Simple dynamic logic: add a small extra based on #items
-                        val dynamicFeeCents = calculateDynamicDeliveryFee(baseDeliveryFeeCents, items)
-                        val grandTotal = itemsTotal + dynamicFeeCents
+                        // EXACT fee from DB (e.g. "60" -> 60.00), no bonus added
+                        val deliveryFeeCents = parsePrice(feeStr)
+                        val grandTotal = itemsTotal + deliveryFeeCents
                         b.tvTotal.text =
-                            "Items: ${formatCurrency(itemsTotal)}  + Delivery: ${formatCurrency(dynamicFeeCents)}  = Total: ${formatCurrency(grandTotal)}"
+                            "Items: ${formatCurrency(itemsTotal)}  + Delivery: ${formatCurrency(deliveryFeeCents)}  = Total: ${formatCurrency(grandTotal)}"
                     }
                     .addOnFailureListener {
                         b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
@@ -138,7 +144,7 @@ class CartActivity : AppCompatActivity() {
         }
         val sellerUidForCart = sellerUids.first()
 
-        // If delivery chosen, enforce saved address
+        // DELIVERY: must have address
         if (deliveryType == "DELIVERY") {
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java)
@@ -159,7 +165,7 @@ class CartActivity : AppCompatActivity() {
                 Toast.makeText(this, "Failed to load address: ${e.message}", Toast.LENGTH_LONG).show()
             }
         } else {
-            // PICKUP: no address required, but we can still store last saved one if exists (optional)
+            // PICKUP: address optional
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java) // can be null
                 verifyStockAndPlaceOrder(
@@ -171,7 +177,6 @@ class CartActivity : AppCompatActivity() {
                     address = addr
                 )
             }.addOnFailureListener {
-                // Even if address load fails, pickup doesn't strictly need it
                 verifyStockAndPlaceOrder(
                     uid = uid,
                     buyerRef = buyerRef,
@@ -185,7 +190,7 @@ class CartActivity : AppCompatActivity() {
     }
 
     /**
-     * Check quantities against the latest inventory in the DB.
+     * Check quantities against latest inventory in DB.
      * If OK -> creates order, updates inventory, clears cart.
      */
     private fun verifyStockAndPlaceOrder(
@@ -216,7 +221,6 @@ class CartActivity : AppCompatActivity() {
             }
 
             if (outOfStockItems.isNotEmpty()) {
-                // Show alert dialog (UI requirement)
                 AlertDialog.Builder(this)
                     .setTitle("Not enough stock")
                     .setMessage(
@@ -229,7 +233,6 @@ class CartActivity : AppCompatActivity() {
                 return@addOnSuccessListener
             }
 
-            // If we reach here -> all quantities OK. Proceed to place order.
             placeOrder(
                 uid = uid,
                 buyerRef = buyerRef,
@@ -297,7 +300,7 @@ class CartActivity : AppCompatActivity() {
                     buyerRef.child("cart").removeValue()
                     buyerRef.child("cartMeta").removeValue()
                     Toast.makeText(this, "Order placed (pickup)!", Toast.LENGTH_LONG).show()
-                    showOrderPlacedNotification(orderId)
+                    showOrderPlacedNotification(orderId, sellerUidForCart)
                     finish()
                 } else {
                     Toast.makeText(
@@ -313,8 +316,8 @@ class CartActivity : AppCompatActivity() {
                 .get()
                 .addOnSuccessListener { feeSnap ->
                     val deliveryStr = feeSnap.getValue(String::class.java) ?: "0"
-                    val baseDeliveryFeeCents = parsePrice(deliveryStr)
-                    val deliveryFeeCents = calculateDynamicDeliveryFee(baseDeliveryFeeCents, orderItems)
+                    // EXACT fee from DB
+                    val deliveryFeeCents = parsePrice(deliveryStr)
                     val orderTotal = itemsTotalCents + deliveryFeeCents
 
                     val order = Order(
@@ -356,7 +359,7 @@ class CartActivity : AppCompatActivity() {
                             buyerRef.child("cart").removeValue()
                             buyerRef.child("cartMeta").removeValue()
                             Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
-                            showOrderPlacedNotification(orderId)
+                            showOrderPlacedNotification(orderId, sellerUidForCart)
                             finish()
                         } else {
                             Toast.makeText(
@@ -416,13 +419,7 @@ class CartActivity : AppCompatActivity() {
         return if (rb != null && rb.id == b.rbPickup.id) "PICKUP" else "DELIVERY"
     }
 
-    // Simple "dynamic" delivery fee logic:
-    // base fee + 0.5 per item
-    private fun calculateDynamicDeliveryFee(baseFeeCents: Long, items: List<CartItem>): Long {
-        val extraPerItemCents = 50L
-        val extra = items.sumOf { it.quantity * extraPerItemCents }
-        return baseFeeCents + extra
-    }
+    // ==== NOTIFICATIONS ====
 
     // ==== NOTIFICATIONS ====
 
@@ -446,28 +443,61 @@ class CartActivity : AppCompatActivity() {
                 android.Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
         } else {
-            true // pre-Android 13 doesn't need this permission
+            true
         }
     }
 
-    private fun showOrderPlacedNotification(orderId: String) {
-        // If permission not granted, just skip the notification (no crash)
-        if (!hasNotificationPermission()) {
-            return
+    private fun showOrderPlacedNotification(orderId: String, sellerUid: String) {
+        if (!hasNotificationPermission()) return
+
+        // Fetch restaurant name from Sellers/{uid}/name
+        db.reference.child("Sellers").child(sellerUid).child("name")
+            .get()
+            .addOnSuccessListener { snap ->
+                val restaurantName = snap.getValue(String::class.java) ?: "your restaurant"
+                sendOrderPlacedNotification(orderId, restaurantName)
+            }
+            .addOnFailureListener {
+                sendOrderPlacedNotification(orderId, "your restaurant")
+            }
+    }
+
+    private fun sendOrderPlacedNotification(orderId: String, restaurantName: String) {
+        if (!hasNotificationPermission()) return
+
+        // When user taps → open Orders screen
+        val intent = Intent(this, OrdersActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
+
+        val pendingFlags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            else
+                PendingIntent.FLAG_UPDATE_CURRENT
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            orderId.hashCode(),
+            intent,
+            pendingFlags
+        )
+
+        val title = getString(R.string.app_name)   // e.g. "Nastique"
+        val text = "Your order from $restaurantName has been placed."
 
         val builder = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orders)
-            .setContentTitle("Order placed")
-            .setContentText("Your order #${orderId.takeLast(6)} has been placed successfully.")
+            .setContentTitle(title)          // App name
+            .setContentText(text)            // Includes restaurant name
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
 
         try {
             with(NotificationManagerCompat.from(this)) {
                 notify(orderId.hashCode(), builder.build())
             }
-        } catch (e: SecurityException) {
-            // In case something weird happens, ignore to avoid crash
-        }
+        } catch (e: SecurityException) { }
     }
 }

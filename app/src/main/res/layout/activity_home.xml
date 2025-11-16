@@ -74,7 +74,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:hint="      Search restaurants and shops"
+                android:hint="Search restaurants and shops"
                 app:startIconDrawable="@android:drawable/ic_menu_search"
                 app:startIconTint="@color/bb_primary_blue"
                 app:boxBackgroundColor="@android:color/white"
