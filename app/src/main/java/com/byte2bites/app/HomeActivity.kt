@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.addTextChangedListener
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityHomeBinding
 import com.google.firebase.auth.FirebaseAuth
@@ -23,10 +24,12 @@ class HomeActivity : AppCompatActivity() {
         b = ActivityHomeBinding.inflate(layoutInflater)
         setContentView(b.root)
 
+        supportActionBar?.hide()
+
         auth = FirebaseAuth.getInstance()
         db = FirebaseDatabase.getInstance()
 
-        // RecyclerView shows restaurants/shops (sellers)
+        // Restaurants / shops list
         adapter = SellerAdapter(mutableListOf()) { seller ->
             startActivity(Intent(this, SellerProductsActivity::class.java).apply {
                 putExtra("sellerUid", seller.uid)
@@ -36,23 +39,59 @@ class HomeActivity : AppCompatActivity() {
         b.rvProducts.layoutManager = LinearLayoutManager(this)
         b.rvProducts.adapter = adapter
 
-        // Profile icon
-        b.ivProfile.setOnClickListener {
-            startActivity(Intent(this, ProfileActivity::class.java))
-        }
-
-        // Cart FAB
-        b.fabCart.setOnClickListener {
+        // Cart icon in header
+        b.ivCart.setOnClickListener {
             startActivity(Intent(this, CartActivity::class.java))
         }
 
-        // My Orders button
-        b.btnOrders.setOnClickListener {
-            startActivity(Intent(this, OrdersActivity::class.java))
-        }
+        setupBottomNav()
+        setupSearch()
 
+        loadUserGreeting()
         loadSellers()
     }
+
+    // -------- TOP: Welcome NameOfUser --------
+
+    private fun loadUserGreeting() {
+        val currentUser = auth.currentUser ?: return
+
+        db.reference.child("Buyers").child(currentUser.uid)
+            .addListenerForSingleValueEvent(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val userProfile = snapshot.getValue(User::class.java)
+                    val name = userProfile?.fullName?.takeIf { !it.isNullOrBlank() } ?: "there"
+                    // Changed here: no comma, just "Welcome Name"
+                    b.tvTitleHome.text = "Welcome $name"
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    b.tvTitleHome.text = "Welcome"
+                }
+            })
+    }
+
+    // -------- SEARCH: restaurants/shops only --------
+
+    private fun setupSearch() {
+        b.etSearch.addTextChangedListener { text ->
+            filterSellers(text?.toString().orEmpty())
+        }
+    }
+
+    private fun filterSellers(query: String) {
+        val q = query.trim().lowercase()
+        if (q.isEmpty()) {
+            adapter.submit(sellers)
+        } else {
+            val filtered = sellers.filter { seller ->
+                seller.name?.lowercase()?.contains(q) == true
+            }
+            adapter.submit(filtered)
+        }
+    }
+
+    // -------- LOAD SELLERS --------
 
     private fun loadSellers() {
         val user = auth.currentUser
@@ -85,7 +124,17 @@ class HomeActivity : AppCompatActivity() {
                     }
                     sellers.clear()
                     sellers.addAll(list)
-                    adapter.submit(sellers)
+
+                    val q = b.etSearch.text?.toString().orEmpty()
+                    filterSellers(q)
+
+                    if (sellers.isEmpty()) {
+                        Toast.makeText(
+                            this@HomeActivity,
+                            "No restaurants found.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -96,5 +145,20 @@ class HomeActivity : AppCompatActivity() {
                     ).show()
                 }
             })
+    }
+
+    // -------- BOTTOM NAV --------
+
+    private fun setupBottomNav() {
+        // Already on Home
+        b.navHome.setOnClickListener {
+            // no-op
+        }
+        b.navOrders.setOnClickListener {
+            startActivity(Intent(this, OrdersActivity::class.java))
+        }
+        b.navProfile.setOnClickListener {
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
     }
 }

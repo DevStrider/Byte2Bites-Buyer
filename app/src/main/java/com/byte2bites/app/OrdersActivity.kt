@@ -1,6 +1,10 @@
 package com.byte2bites.app
 
+import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -17,6 +21,18 @@ class OrdersActivity : AppCompatActivity() {
     private lateinit var adapter: OrdersAdapter
     private val orders = mutableListOf<Order>()
 
+    // Handler for real-time UI updates (status / time labels)
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            if (::adapter.isInitialized && orders.isNotEmpty()) {
+                adapter.notifyDataSetChanged()
+            }
+            // Refresh every 10 seconds (you can change to 5000L if you want faster)
+            uiHandler.postDelayed(this, 10_000L)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityOrdersBinding.inflate(layoutInflater)
@@ -26,9 +42,38 @@ class OrdersActivity : AppCompatActivity() {
         b.rvOrders.layoutManager = LinearLayoutManager(this)
         b.rvOrders.adapter = adapter
 
-        b.ivBack.setOnClickListener { finish() }
-
+        setupBottomNav()
+        setupVoipButton()
         loadOrders()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        uiHandler.post(refreshRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        uiHandler.removeCallbacks(refreshRunnable)
+    }
+
+    private fun setupBottomNav() {
+        b.navHome.setOnClickListener {
+            startActivity(Intent(this, HomeActivity::class.java))
+        }
+        b.navOrders.setOnClickListener {
+            // already here
+        }
+        b.navProfile.setOnClickListener {
+            startActivity(Intent(this, ProfileActivity::class.java))
+        }
+    }
+
+    private fun setupVoipButton() {
+        b.ivVoip.setOnClickListener {
+            // Open the VoIP signaling screen
+            startActivity(Intent(this, VoipCallActivity::class.java))
+        }
     }
 
     private fun loadOrders() {
@@ -39,63 +84,28 @@ class OrdersActivity : AppCompatActivity() {
         }
 
         val ordersRef = db.reference.child("Buyers").child(uid).child("orders")
-
         ordersRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val now = System.currentTimeMillis()
-                val freshOrders = mutableListOf<Order>()
-                val toDelete = mutableListOf<Order>()
-
+                val list = mutableListOf<Order>()
                 for (child in snapshot.children) {
                     val order = child.getValue(Order::class.java) ?: continue
-                    val ageSeconds = ((now - order.timestamp) / 1000).toInt()
-
-                    // > 90 seconds → delete
-                    if (ageSeconds > 90) {
-                        toDelete.add(order)
-                    } else {
-                        freshOrders.add(order)
-                    }
+                    list.add(order)
                 }
 
-                // Delete expired orders from Buyers and Sellers
-                deleteExpiredOrders(uid, toDelete)
-
                 // Newest first
-                freshOrders.sortByDescending { it.timestamp }
+                list.sortByDescending { it.timestamp }
 
                 orders.clear()
-                orders.addAll(freshOrders)
+                orders.addAll(list)
                 adapter.submit(orders)
 
                 b.tvEmpty.visibility =
-                    if (orders.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+                    if (orders.isEmpty()) View.VISIBLE else View.GONE
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Toast.makeText(this@OrdersActivity, error.message, Toast.LENGTH_SHORT).show()
             }
         })
-    }
-
-    private fun deleteExpiredOrders(buyerUid: String, expiredOrders: List<Order>) {
-        if (expiredOrders.isEmpty()) return
-
-        val updates = hashMapOf<String, Any?>()
-
-        for (order in expiredOrders) {
-            val orderId = order.orderId
-            // Remove from buyer
-            updates["Buyers/$buyerUid/orders/$orderId"] = null
-
-            // Remove from each seller
-            order.items.groupBy { it.sellerUid }.forEach { (sellerUid, _) ->
-                if (!sellerUid.isNullOrEmpty()) {
-                    updates["Sellers/$sellerUid/orders/$orderId"] = null
-                }
-            }
-        }
-
-        db.reference.updateChildren(updates)
     }
 }

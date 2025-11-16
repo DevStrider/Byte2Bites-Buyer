@@ -4,6 +4,9 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.byte2bites.app.databinding.ItemOrderBinding
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class OrdersAdapter(
     private val items: MutableList<Order>
@@ -24,21 +27,48 @@ class OrdersAdapter(
         val order = items[position]
         val b = holder.b
 
+        val timestamp = order.timestamp
         val now = System.currentTimeMillis()
-        val ageSeconds = ((now - order.timestamp) / 1000).toInt().coerceAtLeast(0)
+        val ageSeconds = if (timestamp > 0L) {
+            ((now - timestamp) / 1000).toInt().coerceAtLeast(0)
+        } else {
+            0
+        }
 
+        // Status based on age
         val status = when {
             ageSeconds < 20 -> "Accepted"
             ageSeconds < 40 -> "Preparing"
             ageSeconds < 60 -> "Delivering"
-            ageSeconds < 90 -> "Order complete"
             else -> "Order complete"
         }
 
         b.tvOrderId.text = "Order #${order.orderId.takeLast(6)}"
         b.tvStatus.text = status
-        b.tvTime.text = formatAge(ageSeconds)
-        b.tvTotal.text = formatCurrency(order.totalCents)
+
+        // Time display:
+        //  - while in progress -> relative (Just now / XXs ago / XX min ago)
+        //  - after complete    -> show date only
+        b.tvTime.text = if (status == "Order complete") {
+            formatDate(timestamp)
+        } else {
+            formatAge(ageSeconds)
+        }
+
+        // Items summary (e.g. "2 × Burger\n1 × Fries")
+        val itemsSummary = if (order.items.isNullOrEmpty()) {
+            "No items"
+        } else {
+            order.items.joinToString(separator = "\n") { item ->
+                val qty = item.quantity
+                val name = item.name.ifBlank { "Item" }
+                "$qty × $name"
+            }
+        }
+        b.tvItems.text = itemsSummary
+
+        // Total
+        b.tvTotal.text = "Total: ${formatCurrency(order.totalCents)}"
     }
 
     override fun getItemCount(): Int = items.size
@@ -51,10 +81,16 @@ class OrdersAdapter(
 
     private fun formatAge(ageSeconds: Int): String =
         when {
-            ageSeconds < 10 -> "Just now"
+            ageSeconds <= 0 -> "Just now"
             ageSeconds < 60 -> "${ageSeconds}s ago"
             else -> "${ageSeconds / 60} min ago"
         }
+
+    private fun formatDate(timestamp: Long): String {
+        if (timestamp <= 0L) return ""
+        val sdf = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+        return sdf.format(Date(timestamp))
+    }
 
     private fun formatCurrency(cents: Long): String {
         val whole = cents / 100

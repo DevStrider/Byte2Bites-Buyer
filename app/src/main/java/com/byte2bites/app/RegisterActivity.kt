@@ -19,6 +19,9 @@ class RegisterActivity : AppCompatActivity() {
         binding = ActivityRegisterBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Fullscreen-ish auth screen
+        supportActionBar?.hide()
+
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
@@ -60,16 +63,25 @@ class RegisterActivity : AppCompatActivity() {
                                 if (dbTask.isSuccessful) {
                                     Toast.makeText(this, "Registration successful!", Toast.LENGTH_SHORT).show()
                                     val intent = Intent(this, HomeActivity::class.java)
-                                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                    intent.flags =
+                                        Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                     startActivity(intent)
                                     finish()
                                 } else {
-                                    Toast.makeText(this, "Database Error: ${dbTask.exception?.message}", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(
+                                        this,
+                                        "Database error: ${dbTask.exception?.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                 }
                             }
                     }
                 } else {
-                    Toast.makeText(this, "Authentication failed: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Authentication failed: ${task.exception?.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
     }

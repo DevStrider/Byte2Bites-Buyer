@@ -56,19 +56,17 @@ class ProfileActivity : AppCompatActivity() {
         binding = ActivityProfileBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.ivBack.setOnClickListener { finish() }
-
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
         initAwsS3()
         loadUserProfile()
+        setupBottomNav()
 
         binding.ivProfilePicture.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
 
-        // (Your other button listeners remain the same)
         binding.btnLogout.setOnClickListener {
             auth.signOut()
             val intent = Intent(this, WelcomeActivity::class.java)
@@ -89,6 +87,18 @@ class ProfileActivity : AppCompatActivity() {
         }
         binding.cardChangePassword.setOnClickListener {
             startActivity(Intent(this, ChangePasswordActivity::class.java))
+        }
+    }
+
+    private fun setupBottomNav() {
+        binding.navHome.setOnClickListener {
+            startActivity(Intent(this, HomeActivity::class.java))
+        }
+        binding.navOrders.setOnClickListener {
+            startActivity(Intent(this, OrdersActivity::class.java))
+        }
+        binding.navProfile.setOnClickListener {
+            // already here
         }
     }
 
@@ -139,7 +149,11 @@ class ProfileActivity : AppCompatActivity() {
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Toast.makeText(this@ProfileActivity, "Failed to load profile: ${error.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this@ProfileActivity,
+                    "Failed to load profile: ${error.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         })
     }
@@ -150,7 +164,6 @@ class ProfileActivity : AppCompatActivity() {
             return
         }
 
-        // We need a File object, so create one from the Uri
         val tempFile = File(cacheDir, "${UUID.randomUUID()}.jpg")
         try {
             val inputStream = contentResolver.openInputStream(selectedImageUri!!)
@@ -163,10 +176,8 @@ class ProfileActivity : AppCompatActivity() {
             return
         }
 
-        // The object key is now just the unique filename.
         val objectKey = tempFile.name
         Toast.makeText(this, "Uploading photo...", Toast.LENGTH_SHORT).show()
-        // Start the upload
         val transferObserver = transferUtility.upload(
             S3_BUCKET_NAME,
             objectKey,
@@ -177,32 +188,28 @@ class ProfileActivity : AppCompatActivity() {
         transferObserver.setTransferListener(object : TransferListener {
             override fun onStateChanged(id: Int, state: TransferState) {
                 if (state == TransferState.COMPLETED) {
-                    // Upload is complete, get the public URL
                     val photoUrl = s3Client.getUrl(S3_BUCKET_NAME, objectKey).toString()
-
-                    // Save the URL to Firebase
                     updateFirebaseProfile(photoUrl)
-
-                    // Clean up the temporary file
                     tempFile.delete()
                 }
             }
 
             override fun onProgressChanged(id: Int, bytesCurrent: Long, bytesTotal: Long) {
-                // You can show a progress bar here if you want
             }
 
             override fun onError(id: Int, ex: Exception) {
-                Toast.makeText(this@ProfileActivity, "Upload Failed: ${ex.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@ProfileActivity,
+                    "Upload Failed: ${ex.message}",
+                    Toast.LENGTH_LONG
+                ).show()
                 tempFile.delete()
             }
         })
     }
 
     private fun updateFirebaseProfile(photoUrl: String) {
-        val uid = auth.currentUser?.uid
-        if (uid == null) return
-
+        val uid = auth.currentUser?.uid ?: return
         val userRef = database.reference.child("Buyers").child(uid)
 
         userRef.updateChildren(mapOf("photoUrl" to photoUrl))
@@ -210,7 +217,11 @@ class ProfileActivity : AppCompatActivity() {
                 Toast.makeText(this, "Profile photo updated!", Toast.LENGTH_SHORT).show()
             }
             .addOnFailureListener {
-                Toast.makeText(this, "Failed to update profile: ${it.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    "Failed to update profile: ${it.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
     }
 
@@ -240,23 +251,35 @@ class ProfileActivity : AppCompatActivity() {
                 }
             }.start()
 
-            // Continue deleting from Firebase
             database.reference.child("Buyers").child(uid).removeValue()
                 .addOnCompleteListener { dbTask ->
                     if (dbTask.isSuccessful) {
                         user.delete().addOnCompleteListener { authTask ->
                             if (authTask.isSuccessful) {
-                                Toast.makeText(this, "Account deleted successfully.", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(
+                                    this,
+                                    "Account deleted successfully.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                                 val intent = Intent(this, WelcomeActivity::class.java)
-                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                intent.flags =
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                 startActivity(intent)
                                 finish()
                             } else {
-                                Toast.makeText(this, "Failed to delete account: ${authTask.exception?.message}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(
+                                    this,
+                                    "Failed to delete account: ${authTask.exception?.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
                             }
                         }
                     } else {
-                        Toast.makeText(this, "Failed to delete user data: ${dbTask.exception?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Failed to delete user data: ${dbTask.exception?.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
         }

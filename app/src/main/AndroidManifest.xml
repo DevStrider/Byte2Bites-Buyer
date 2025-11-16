@@ -1,9 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Needed for notifications on Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -20,40 +24,66 @@
         <activity
             android:name=".WelcomeActivity"
             android:exported="true"
-            android:theme="@style/Theme.Byte2Bites.LightWelcome">
+            android:theme="@style/Theme.Byte2Bites">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Auth -->
-        <activity android:name=".LoginActivity" android:exported="false" />
-        <activity android:name=".RegisterActivity" android:exported="false" />
-        <activity android:name=".ForgotPasswordActivity" android:exported="false" />
+        <!-- Auth screens -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false" />
+        <activity
+            android:name=".RegisterActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ForgotPasswordActivity"
+            android:exported="false" />
 
         <!-- Profile / settings -->
-        <activity android:name=".ProfileActivity" android:exported="false" />
-        <activity android:name=".ChangeUserInfoActivity" android:exported="false" />
-        <activity android:name=".AddressActivity" android:exported="false" />
-        <activity android:name=".ChangePasswordActivity" android:exported="false" />
+        <activity
+            android:name=".ProfileActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ChangeUserInfoActivity"
+            android:exported="false" />
+        <activity
+            android:name=".AddressActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ChangePasswordActivity"
+            android:exported="false" />
 
-        <!-- Buyer home = list of restaurants/shops -->
-        <activity android:name=".HomeActivity" android:exported="false" />
+        <!-- Buyer home (list of sellers / restaurants) -->
+        <activity
+            android:name=".HomeActivity"
+            android:exported="false" />
 
-        <!-- NEW: products of a single seller -->
-        <activity android:name=".SellerProductsActivity" android:exported="false" />
+        <!-- Seller's products (buyer browsing one shop) -->
+        <activity
+            android:name=".SellerProductsActivity"
+            android:exported="false" />
 
-        <!-- NEW: product details + add to cart -->
-        <activity android:name=".ProductDetailsActivity" android:exported="false" />
+        <!-- Product details + add to cart -->
+        <activity
+            android:name=".ProductDetailsActivity"
+            android:exported="false" />
 
-        <!-- NEW: cart / checkout -->
-        <activity android:name=".CartActivity" android:exported="false" />
+        <!-- Cart / checkout -->
+        <activity
+            android:name=".CartActivity"
+            android:exported="false" />
 
+        <!-- Orders list -->
         <activity
             android:name=".OrdersActivity"
             android:exported="false" />
 
-
+        <!-- VoIP signaling screen -->
+        <activity
+            android:name=".VoipCallActivity"
+            android:exported="false" />
     </application>
 </manifest>

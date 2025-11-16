@@ -2,11 +2,11 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="960"
-    android:viewportHeight="960"
-    android:tint="?attr/colorOnBackground">
+    android:viewportWidth="24"
+    android:viewportHeight="24">
 
+    <!-- Simple house icon -->
     <path
         android:fillColor="@android:color/white"
-        android:pathData="m321,880 l-71,-71 329,-329 -329,-329 71,-71 400,400L321,880Z" />
+        android:pathData="M12,3L3,10h2v8h6v-5h2v5h6v-8h2L12,3z" />
 </vector>

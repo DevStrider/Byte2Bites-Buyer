@@ -17,6 +17,9 @@ class ForgotPasswordActivity : AppCompatActivity() {
         binding = ActivityForgotPasswordBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Hide action bar for clean UI
+        supportActionBar?.hide()
+
         auth = FirebaseAuth.getInstance()
 
         binding.ivBack.setOnClickListener {
@@ -46,10 +49,18 @@ class ForgotPasswordActivity : AppCompatActivity() {
         auth.sendPasswordResetEmail(email)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    Toast.makeText(this, "Password reset instructions sent to your email.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Password reset instructions sent to your email.",
+                        Toast.LENGTH_LONG
+                    ).show()
                     finish()
                 } else {
-                    Toast.makeText(this, "Failed to send reset email: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Failed to send reset email: ${task.exception?.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
     }

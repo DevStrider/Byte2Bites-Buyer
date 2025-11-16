@@ -4,7 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/background_gradient"
+    android:background="@color/bb_page_background_blue"
     android:fillViewport="true">
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -13,51 +13,69 @@
         android:padding="24dp"
         tools:context=".LoginActivity">
 
+        <!-- Back arrow -->
         <ImageView
             android:id="@+id/ivBack"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:src="@drawable/ic_arrow_back"
             android:padding="8dp"
-            app:tint="@color/white"
+            android:src="@drawable/ic_arrow_back"
+            app:tint="@color/bb_on_background"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"/>
+            app:layout_constraintStart_toStartOf="parent" />
 
-        <ImageView
-            android:id="@+id/ivIcon"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
-            android:layout_marginTop="60dp"
-            android:src="@drawable/ic_login"
-            app:tint="@color/primary_green"
-            app:layout_constraintTop_toBottomOf="@id/ivBack"
+        <!-- Circular icon -->
+
+        <!-- Title -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/iconContainer"
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginTop="4dp"
+            app:cardBackgroundColor="@color/bb_surface_light"
+            app:cardCornerRadius="36dp"
+            app:cardElevation="0dp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="0.498"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"/>
+            app:layout_constraintTop_toBottomOf="@id/ivBack">
+
+            <ImageView
+                android:id="@+id/ivIcon"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_login"
+                app:tint="@color/bb_primary_blue" />
+        </com.google.android.material.card.MaterialCardView>
 
         <TextView
             android:id="@+id/tvLoginTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Sign In"
-            android:textColor="@color/text_primary_dark"
-            android:textSize="32sp"
+            android:layout_marginTop="20dp"
+            android:text="Log in"
+            android:textColor="@color/bb_on_background"
+            android:textSize="28sp"
             android:textStyle="bold"
+            app:layout_constraintTop_toBottomOf="@id/iconContainer"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/ivIcon" />
+            app:layout_constraintEnd_toEndOf="parent" />
 
+        <!-- Subtitle -->
         <TextView
             android:id="@+id/tvLoginSubtitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Welcome back!"
-            android:textColor="@color/text_secondary_dark"
-            android:textSize="18sp"
+            android:text="Welcome back to Nastique"
+            android:textColor="@color/bb_on_surface"
+            android:textSize="16sp"
+            android:alpha="0.8"
             app:layout_constraintTop_toBottomOf="@id/tvLoginTitle"
             app:layout_constraintStart_toStartOf="@id/tvLoginTitle"
             app:layout_constraintEnd_toEndOf="@id/tvLoginTitle" />
 
+        <!-- Email -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilEmail"
             style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
@@ -65,26 +83,27 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
             android:hint="Email"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
+            android:textColorHint="@color/bb_on_surface"
+            app:boxBackgroundColor="@color/bb_surface_light"
+            app:boxCornerRadiusTopStart="20dp"
+            app:boxCornerRadiusTopEnd="20dp"
+            app:boxCornerRadiusBottomStart="20dp"
+            app:boxCornerRadiusBottomEnd="20dp"
             app:boxStrokeWidth="0dp"
             app:boxStrokeWidthFocused="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/tvLoginSubtitle"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tvLoginSubtitle">
+            app:layout_constraintEnd_toEndOf="parent">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etEmail"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="textEmailAddress"
-                android:textColor="@color/text_primary_dark" />
+                android:textColor="@color/bb_on_background" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Password -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/tilPassword"
             style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
@@ -92,53 +111,63 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:hint="Password"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
+            android:textColorHint="@color/bb_on_surface"
+            app:boxBackgroundColor="@color/bb_surface_light"
+            app:boxCornerRadiusTopStart="20dp"
+            app:boxCornerRadiusTopEnd="20dp"
+            app:boxCornerRadiusBottomStart="20dp"
+            app:boxCornerRadiusBottomEnd="20dp"
             app:boxStrokeWidth="0dp"
             app:boxStrokeWidthFocused="0dp"
             app:passwordToggleEnabled="true"
-            app:passwordToggleTint="@color/text_secondary_dark"
-            app:layout_constraintEnd_toEndOf="parent"
+            app:passwordToggleTint="@color/bb_on_surface"
+            app:layout_constraintTop_toBottomOf="@id/tilEmail"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tilEmail">
+            app:layout_constraintEnd_toEndOf="parent">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/etPassword"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="textPassword"
-                android:textColor="@color/text_primary_dark" />
+                android:textColor="@color/bb_on_background" />
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Forgot password -->
         <TextView
             android:id="@+id/tvForgotPassword"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Forgot Password?"
-            android:textColor="@color/primary_green"
-            android:textSize="16sp"
+            android:layout_marginTop="12dp"
+            android:text="Forgot password?"
+            android:textColor="@color/bb_primary_blue"
+            android:textSize="14sp"
             app:layout_constraintTop_toBottomOf="@id/tilPassword"
             app:layout_constraintEnd_toEndOf="@id/tilPassword" />
 
-        <Button
+        <!-- Log in button (pinned to bottom) -->
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnLogin"
+            style="@style/Widget.Byte2Bites.Button.Primary"
             android:layout_width="0dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="32dp"
-            android:text="Sign In"
+            android:layout_height="52dp"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="Log in"
             android:textAllCaps="false"
-            android:backgroundTint="@color/primary_green"
-            app:cornerRadius="30dp"
-            android:textColor="@color/white"
-            android:textSize="18sp"
+            android:textColor="@color/bb_on_primary"
+            android:textSize="16sp"
+            app:backgroundTint="@color/bb_gold"
+            app:cornerRadius="26dp"
+            app:icon="@drawable/ic_login"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="0.0"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tvForgotPassword" />
+            app:layout_constraintTop_toBottomOf="@id/tvForgotPassword"
+            app:layout_constraintVertical_bias="0.816" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </ScrollView>

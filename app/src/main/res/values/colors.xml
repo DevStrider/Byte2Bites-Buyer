@@ -1,16 +1,32 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary_green">#1DB954</color>
-    <color name="primary_green_dark">#198754</color>
+    <!-- Brand Blues -->
+    <color name="bb_primary_blue">#145DA0</color>         <!-- main blue -->
+    <color name="bb_primary_blue_dark">#0B3A66</color>   <!-- darker blue -->
+    <color name="bb_primary_blue_light">#E3F2FD</color>  <!-- light tint -->
+    <color name="bb_page_background_blue">#E7F3FF</color>
 
-    <color name="background_dark">#121212</color>
-    <color name="surface_dark">#212121</color>
-    <color name="surface_light">#333333</color>
+    <!-- Gold accents -->
+    <color name="bb_gold">#FFC857</color>
+    <color name="bb_gold_dark">#E0A93B</color>
 
-    <color name="text_primary_dark">#FFFFFF</color>
-    <color name="text_secondary_dark">#B3FFFFFF</color>
+    <!-- Neutrals -->
+    <color name="bb_background">#FFFFFF</color>
+    <color name="bb_surface">#FFFFFF</color>
+    <color name="bb_surface_light">#F5F5F5</color>
+    <color name="bb_on_primary">#FFFFFF</color>
+    <color name="bb_on_background">#121212</color>
+    <color name="bb_on_surface">#333333</color>
 
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="error_red">#F44336</color>
+    <!-- Status / misc -->
+    <color name="bb_error">#D32F2F</color>
+    <color name="bb_success">#2E7D32</color>
+
+    <color name="text_primary_dark">#121212</color>
+    <color name="text_secondary_dark">#666666</color>
+
+    <!-- If you see an error on surface_dark, also add: -->
+    <color name="surface_dark">#202124</color>
+    <color name="surface_light">#F5F5F5</color>
+    <color name="white">#FFFFFF</color>
+
 </resources>

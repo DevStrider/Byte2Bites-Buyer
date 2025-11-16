@@ -13,23 +13,33 @@ class WelcomeActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         binding = ActivityWelcomeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Full-screen welcome, no action bar
+        supportActionBar?.hide()
+
         auth = FirebaseAuth.getInstance()
 
-        // If user is already logged in, go directly to Profile
-        if (auth.currentUser != null) {
+        // If already logged in, go straight to Home
+        val currentUser = auth.currentUser
+        if (currentUser != null) {
             startActivity(Intent(this, HomeActivity::class.java))
             finish()
             return
         }
 
-        // --- FIX: Added button listeners back ---
+        setupClickListeners()
+    }
+
+    private fun setupClickListeners() {
+        // LOGIN FIRST (primary)
         binding.btnLogin.setOnClickListener {
             startActivity(Intent(this, LoginActivity::class.java))
         }
 
+        // SIGN UP / CREATE ACCOUNT SECOND
         binding.btnRegister.setOnClickListener {
             startActivity(Intent(this, RegisterActivity::class.java))
         }

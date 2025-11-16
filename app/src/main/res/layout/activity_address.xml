@@ -1,160 +1,177 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="@drawable/background_gradient">
+    android:background="@color/bb_page_background_blue"
+    tools:context=".AddressActivity">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:layout_width="match_parent"
+    <!-- Back arrow -->
+    <ImageView
+        android:id="@+id/ivBack"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@drawable/ic_arrow_back"
+        android:padding="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        app:tint="@color/bb_primary_blue"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_margin="16dp" />
+
+    <!-- Title -->
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:padding="24dp"
-        tools:context=".AddressActivity">
+        android:text="My Address"
+        android:textColor="@color/text_primary_dark"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp"
+        android:layout_marginHorizontal="16dp" />
 
-        <ImageView
-            android:id="@+id/ivBack"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:src="@drawable/ic_arrow_back"
-            android:padding="8dp"
-            app:tint="@color/white"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"/>
+    <!-- Scrollable form -->
+    <ScrollView
+        android:id="@+id/scrollAddress"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:fillViewport="true"
+        app:layout_constraintTop_toBottomOf="@id/tvTitle"
+        app:layout_constraintBottom_toTopOf="@id/btnSaveAddress"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="12dp">
 
-        <TextView
-            android:id="@+id/tvTitle"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="My Address"
-            android:textColor="@color/text_primary_dark"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            android:textAlignment="center"
-            android:layout_marginTop="48dp"
-            app:layout_constraintTop_toBottomOf="@id/ivBack"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"/>
+            android:orientation="vertical">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilBuildingName"
-            style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
-            android:hint="Building Name / Number"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
-            app:boxStrokeWidth="0dp"
-            app:boxStrokeWidthFocused="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tvTitle">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etBuildingName"
+            <!-- Building name / number -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilBuildingName"
+                style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text"
-                android:textColor="@color/text_primary_dark"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:hint="Building Name / Number"
+                android:textColorHint="@color/text_secondary_dark"
+                app:boxBackgroundColor="@color/bb_surface"
+                app:boxCornerRadiusTopStart="24dp"
+                app:boxCornerRadiusTopEnd="24dp"
+                app:boxCornerRadiusBottomStart="24dp"
+                app:boxCornerRadiusBottomEnd="24dp"
+                app:boxStrokeWidth="0dp"
+                app:boxStrokeWidthFocused="0dp">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilStreetName"
-            style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Street Name"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
-            app:boxStrokeWidth="0dp"
-            app:boxStrokeWidthFocused="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tilBuildingName">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etStreetName"
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etBuildingName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:textColor="@color/text_primary_dark" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Street name -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilStreetName"
+                style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text"
-                android:textColor="@color/text_primary_dark"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginTop="12dp"
+                android:hint="Street Name"
+                android:textColorHint="@color/text_secondary_dark"
+                app:boxBackgroundColor="@color/bb_surface"
+                app:boxCornerRadiusTopStart="24dp"
+                app:boxCornerRadiusTopEnd="24dp"
+                app:boxCornerRadiusBottomStart="24dp"
+                app:boxCornerRadiusBottomEnd="24dp"
+                app:boxStrokeWidth="0dp"
+                app:boxStrokeWidthFocused="0dp">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilApartmentNumber"
-            style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Apartment Number"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
-            app:boxStrokeWidth="0dp"
-            app:boxStrokeWidthFocused="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tilStreetName">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etApartmentNumber"
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etStreetName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:textColor="@color/text_primary_dark" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Apartment -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilApartmentNumber"
+                style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text"
-                android:textColor="@color/text_primary_dark"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginTop="12dp"
+                android:hint="Apartment Number"
+                android:textColorHint="@color/text_secondary_dark"
+                app:boxBackgroundColor="@color/bb_surface"
+                app:boxCornerRadiusTopStart="24dp"
+                app:boxCornerRadiusTopEnd="24dp"
+                app:boxCornerRadiusBottomStart="24dp"
+                app:boxCornerRadiusBottomEnd="24dp"
+                app:boxStrokeWidth="0dp"
+                app:boxStrokeWidthFocused="0dp">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilFloorNumber"
-            style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:hint="Floor Number"
-            android:textColorHint="@color/text_secondary_dark"
-            app:boxBackgroundColor="@color/surface_dark"
-            app:boxCornerRadiusBottomEnd="30dp"
-            app:boxCornerRadiusBottomStart="30dp"
-            app:boxCornerRadiusTopEnd="30dp"
-            app:boxCornerRadiusTopStart="30dp"
-            app:boxStrokeWidth="0dp"
-            app:boxStrokeWidthFocused="0dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/tilApartmentNumber">
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etFloorNumber"
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etApartmentNumber"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text"
+                    android:textColor="@color/text_primary_dark" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <!-- Floor -->
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilFloorNumber"
+                style="@style/Widget.MaterialComponents.TextInputLayout.FilledBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="number"
-                android:textColor="@color/text_primary_dark"/>
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginTop="12dp"
+                android:hint="Floor Number"
+                android:textColorHint="@color/text_secondary_dark"
+                app:boxBackgroundColor="@color/bb_surface"
+                app:boxCornerRadiusTopStart="24dp"
+                app:boxCornerRadiusTopEnd="24dp"
+                app:boxCornerRadiusBottomStart="24dp"
+                app:boxCornerRadiusBottomEnd="24dp"
+                app:boxStrokeWidth="0dp"
+                app:boxStrokeWidthFocused="0dp">
 
-        <Button
-            android:id="@+id/btnSaveAddress"
-            android:layout_width="0dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="24dp"
-            android:text="Save Address"
-            android:textAllCaps="false"
-            android:textSize="18sp"
-            android:textColor="@color/white"
-            android:backgroundTint="@color/primary_green"
-            app:cornerRadius="30dp"
-            app:layout_constraintTop_toBottomOf="@id/tilFloorNumber"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etFloorNumber"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:textColor="@color/text_primary_dark" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
-</ScrollView>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Save button pinned bottom -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSaveAddress"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginBottom="16dp"
+        android:text="Save Address"
+        android:textAllCaps="false"
+        android:textSize="16sp"
+        android:textColor="@color/bb_on_primary"
+        app:backgroundTint="@color/bb_gold"
+        app:cornerRadius="28dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
