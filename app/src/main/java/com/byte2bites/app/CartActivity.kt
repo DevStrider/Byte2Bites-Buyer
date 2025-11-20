@@ -12,6 +12,7 @@ import android.widget.RadioButton
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -30,6 +31,7 @@ class CartActivity : AppCompatActivity() {
     private val items = mutableListOf<CartItem>()
 
     private val NOTIF_CHANNEL_ID = "orders_channel"
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +39,7 @@ class CartActivity : AppCompatActivity() {
         setContentView(b.root)
 
         createNotificationChannel()
+        requestNotificationPermission()
 
         // Back arrow
         b.ivBack.setOnClickListener { finish() }
@@ -53,6 +56,33 @@ class CartActivity : AppCompatActivity() {
         b.btnCheckout.setOnClickListener { checkout() }
 
         loadCart()
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            // Permission result handled, notifications will work if granted
+        }
     }
 
     private fun loadCart() {
@@ -354,9 +384,16 @@ class CartActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
             val desc = "Order status and confirmations"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            // HIGH importance for heads-up notifications
+            val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
                 description = desc
+                // Enable features for heads-up notifications
+                enableLights(true)
+                lightColor = android.graphics.Color.GREEN
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 100, 200, 300)
+                setShowBadge(true)
             }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
@@ -417,9 +454,11 @@ class CartActivity : AppCompatActivity() {
             .setSmallIcon(R.drawable.ic_orders)
             .setContentTitle(title)          // App name
             .setContentText(text)            // Includes restaurant name
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // HIGH priority for heads-up
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 100, 200, 300)) // Vibration for heads-up
+            .setDefaults(NotificationCompat.DEFAULT_ALL) // Sound, lights, vibration
 
         try {
             with(NotificationManagerCompat.from(this)) {

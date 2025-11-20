@@ -13,6 +13,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -33,6 +34,7 @@ class OrdersActivity : AppCompatActivity() {
     private val orders = mutableListOf<Order>()
 
     private val NOTIF_CHANNEL_ID = "orders_channel"
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
     // For status-change notifications
     private val lastStatusMap = mutableMapOf<String, String>()
@@ -51,6 +53,7 @@ class OrdersActivity : AppCompatActivity() {
         setContentView(b.root)
 
         createNotificationChannel()
+        requestNotificationPermission()
 
         // Initialize gesture detector
         gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
@@ -177,6 +180,9 @@ class OrdersActivity : AppCompatActivity() {
                     // Set up listener to sync status from seller to buyer
                     setupOrderStatusSyncListener(order)
 
+                    // Check for status changes and notify
+                    checkAndNotifyStatusChange(order)
+
                     list.add(order)
                     seenIds += order.orderId
                 }
@@ -250,12 +256,104 @@ class OrdersActivity : AppCompatActivity() {
     private fun updateBuyerOrderStatus(buyerUid: String, orderId: String, sellerStatus: String) {
         val buyerOrderRef = db.reference.child("Buyers").child(buyerUid).child("orders").child(orderId).child("status")
 
-        buyerOrderRef.setValue(sellerStatus).addOnCompleteListener { task ->
-            if (task.isSuccessful) {
-                // Status updated in buyer node successfully
-                // The loadOrders() listener will automatically refresh the UI
+        // Get current status first to compare
+        buyerOrderRef.get().addOnSuccessListener { currentSnap ->
+            val currentStatus = currentSnap.getValue(String::class.java) ?: "UNKNOWN"
+
+            buyerOrderRef.setValue(sellerStatus).addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    // Status updated in buyer node successfully
+                    // Check if status changed and notify
+                    if (currentStatus != sellerStatus) {
+                        // Find the order in our local list to show notification
+                        val order = orders.find { it.orderId == orderId }
+                        if (order != null) {
+                            val updatedOrder = order.copy(status = sellerStatus)
+                            showStatusNotification(updatedOrder, getStatusText(sellerStatus))
+                            // NEW: Show in-app pop-up (Toast)
+                            showStatusPopup(updatedOrder, getStatusText(sellerStatus))
+                        }
+                    }
+                }
             }
         }
+    }
+
+    // Check for status changes and show notifications
+    private fun checkAndNotifyStatusChange(order: Order) {
+        val orderId = order.orderId
+        val currentStatus = order.status ?: "UNKNOWN"
+
+        // Check if status changed
+        val previousStatus = lastStatusMap[orderId]
+
+        if (previousStatus != null && previousStatus != currentStatus) {
+            // Status changed - show notification
+            showStatusNotification(order, getStatusText(currentStatus))
+            // NEW: Show in-app pop-up (Toast)
+            showStatusPopup(order, getStatusText(currentStatus))
+        }
+
+        // Update the last known status
+        lastStatusMap[orderId] = currentStatus
+    }
+
+    private fun getStatusText(status: String): String {
+        return when (status) {
+            "WAITING_APPROVAL" -> "is waiting for approval"
+            "PREPARING" -> "is being prepared"
+            "READY" -> "is ready"
+            "COMPLETED" -> "has been completed"
+            "DENIED" -> "has been denied"
+            else -> "status updated: $status"
+        }
+    }
+
+    // NEW: Show in-app pop-up (Toast) for status changes
+    private fun showStatusPopup(order: Order, statusText: String) {
+        // Try to get seller UID from first cart item
+        val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
+
+        if (sellerUid.isEmpty()) {
+            // Fallback if missing seller UID
+            Toast.makeText(
+                this,
+                "Order status updated: $statusText",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Check cache first
+        val cached = sellerNameCache[sellerUid]
+        if (cached != null) {
+            Toast.makeText(
+                this,
+                "Order from $cached: $statusText",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        // Fetch restaurant name from DB for the pop-up
+        db.reference.child("Sellers").child(sellerUid).child("name")
+            .get()
+            .addOnSuccessListener { snap ->
+                val restaurantName = snap.getValue(String::class.java) ?: "your restaurant"
+                sellerNameCache[sellerUid] = restaurantName
+                Toast.makeText(
+                    this,
+                    "Order from $restaurantName: $statusText",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            .addOnFailureListener {
+                Toast.makeText(
+                    this,
+                    "Order status updated: $statusText",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
     }
 
     // ==== NOTIFICATION HELPERS ====
@@ -264,12 +362,46 @@ class OrdersActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
             val desc = "Order status and confirmations"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            // HIGH importance for heads-up notifications
+            val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
                 description = desc
+                // Enable features for heads-up notifications
+                enableLights(true)
+                lightColor = android.graphics.Color.GREEN
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 100, 200, 300)
+                setShowBadge(true)
             }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            // Permission result handled, notifications will work if granted
         }
     }
 
@@ -353,9 +485,11 @@ class OrdersActivity : AppCompatActivity() {
             .setSmallIcon(R.drawable.ic_orders)
             .setContentTitle(title)
             .setContentText(text)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // HIGH priority for heads-up
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 100, 200, 300)) // Vibration for heads-up
+            .setDefaults(NotificationCompat.DEFAULT_ALL) // Sound, lights, vibration
 
         try {
             with(NotificationManagerCompat.from(context)) {
