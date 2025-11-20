@@ -4,10 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GestureDetectorCompat
 import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.mobileconnectors.s3.transferutility.TransferListener
 import com.amazonaws.mobileconnectors.s3.transferutility.TransferNetworkLossHandler
@@ -33,6 +36,7 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var binding: ActivityProfileBinding
     private lateinit var auth: FirebaseAuth
     private lateinit var database: FirebaseDatabase
+    private lateinit var gestureDetector: GestureDetectorCompat
 
     private lateinit var s3Client: AmazonS3Client
     private lateinit var transferUtility: TransferUtility
@@ -40,6 +44,10 @@ class ProfileActivity : AppCompatActivity() {
     private val AWS_ACCESS_KEY = ""
     private val AWS_SECRET_KEY = ""
     private val S3_BUCKET_NAME = ""
+
+    // Swipe sensitivity
+    private val SWIPE_THRESHOLD = 100
+    private val SWIPE_VELOCITY_THRESHOLD = 100
 
     private val pickImageLauncher = registerForActivityResult(
         ActivityResultContracts.GetContent()
@@ -58,6 +66,9 @@ class ProfileActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
+
+        // Initialize gesture detector
+        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
 
         initAwsS3()
         loadUserProfile()
@@ -88,6 +99,73 @@ class ProfileActivity : AppCompatActivity() {
         binding.cardChangePassword.setOnClickListener {
             startActivity(Intent(this, ChangePasswordActivity::class.java))
         }
+    }
+
+    // Handle touch events for swipe gestures
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return if (gestureDetector.onTouchEvent(event)) {
+            true
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
+    // Also handle touch events on the entire layout
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        ev?.let { gestureDetector.onTouchEvent(it) }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    // Inner class to handle swipe gestures for ProfileActivity
+    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
+
+        override fun onDown(e: MotionEvent): Boolean {
+            return true
+        }
+
+        override fun onFling(
+            e1: MotionEvent?,
+            e2: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            if (e1 == null) return false
+
+            try {
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+
+                if (Math.abs(diffX) > Math.abs(diffY) &&
+                    Math.abs(diffX) > SWIPE_THRESHOLD &&
+                    Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
+
+                    if (diffX > 0) {
+                        // Swipe right - go to Orders
+                        onSwipeRight()
+                    } else {
+                        // Swipe left - go to Home
+                        onSwipeLeft()
+                    }
+                    return true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            return false
+        }
+    }
+
+    private fun onSwipeLeft() {
+        // Navigate to Home page
+        startActivity(Intent(this, HomeActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+    }
+
+    private fun onSwipeRight() {
+        // Navigate to Orders page
+        startActivity(Intent(this, OrdersActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
     }
 
     private fun setupBottomNav() {

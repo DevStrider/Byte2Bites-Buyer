@@ -8,14 +8,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.GestureDetectorCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityOrdersBinding
 import com.google.firebase.auth.FirebaseAuth
@@ -26,39 +27,23 @@ class OrdersActivity : AppCompatActivity() {
     private lateinit var b: ActivityOrdersBinding
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val db: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
+    private lateinit var gestureDetector: GestureDetectorCompat
 
     private lateinit var adapter: OrdersAdapter
     private val orders = mutableListOf<Order>()
 
     private val NOTIF_CHANNEL_ID = "orders_channel"
 
-    // For status-change notifications (virtual status based on time)
+    // For status-change notifications
     private val lastStatusMap = mutableMapOf<String, String>()
     private val sellerNameCache = mutableMapOf<String, String>()
 
-    // Handler for periodic status/time updates + notifications
-    private val uiHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            if (::adapter.isInitialized && orders.isNotEmpty()) {
-                // For each order, recompute status and notify if changed
-                for (order in orders) {
-                    val newStatus = computeStatusForOrder(order)
-                    val oldStatus = lastStatusMap[order.orderId]
+    // Listeners for real-time status updates from sellers
+    private val orderStatusListeners = mutableMapOf<String, ValueEventListener>()
 
-                    // Only notify when status actually changes
-                    if (oldStatus != null && newStatus != oldStatus) {
-                        showStatusNotification(order, newStatus)
-                    }
-                    lastStatusMap[order.orderId] = newStatus
-                }
-                // Refresh list so time/status labels update in UI (if user is on this screen)
-                adapter.notifyDataSetChanged()
-            }
-            // Run again every 1 second (accurate timer)
-            uiHandler.postDelayed(this, 1_000L)
-        }
-    }
+    // Swipe sensitivity
+    private val SWIPE_THRESHOLD = 100
+    private val SWIPE_VELOCITY_THRESHOLD = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +52,9 @@ class OrdersActivity : AppCompatActivity() {
 
         createNotificationChannel()
 
+        // Initialize gesture detector
+        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
+
         adapter = OrdersAdapter(mutableListOf())
         b.rvOrders.layoutManager = LinearLayoutManager(this)
         b.rvOrders.adapter = adapter
@@ -74,16 +62,82 @@ class OrdersActivity : AppCompatActivity() {
         setupBottomNav()
         setupVoipButton()
         loadOrders()
+    }
 
-        // Start periodic status updates once OrdersActivity is created.
-        // This keeps running while the app process is alive, even in background.
-        uiHandler.post(refreshRunnable)
+    // Handle touch events for swipe gestures
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return if (gestureDetector.onTouchEvent(event)) {
+            true
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
+    // Also handle touch events on the entire layout
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        ev?.let { gestureDetector.onTouchEvent(it) }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    // Inner class to handle swipe gestures for OrdersActivity
+    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
+
+        override fun onDown(e: MotionEvent): Boolean {
+            return true
+        }
+
+        override fun onFling(
+            e1: MotionEvent?,
+            e2: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            if (e1 == null) return false
+
+            try {
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+
+                if (Math.abs(diffX) > Math.abs(diffY) &&
+                    Math.abs(diffX) > SWIPE_THRESHOLD &&
+                    Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD) {
+
+                    if (diffX > 0) {
+                        // Swipe right - go to Home
+                        onSwipeRight()
+                    } else {
+                        // Swipe left - go to Profile
+                        onSwipeLeft()
+                    }
+                    return true
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            return false
+        }
+    }
+
+    private fun onSwipeLeft() {
+        // Navigate to Profile page
+        startActivity(Intent(this, ProfileActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+    }
+
+    private fun onSwipeRight() {
+        // Navigate to Home page
+        startActivity(Intent(this, HomeActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Stop the runnable when this Activity is destroyed
-        uiHandler.removeCallbacks(refreshRunnable)
+        // Clean up all order status listeners
+        orderStatusListeners.values.forEach { listener ->
+            // Remove listeners if needed
+        }
+        orderStatusListeners.clear()
     }
 
     private fun setupBottomNav() {
@@ -119,21 +173,24 @@ class OrdersActivity : AppCompatActivity() {
 
                 for (child in snapshot.children) {
                     val order = child.getValue(Order::class.java) ?: continue
+
+                    // Set up listener to get REAL-TIME status from seller's node
+                    setupOrderStatusListener(order)
+
                     list.add(order)
                     seenIds += order.orderId
-
-                    // Initialize virtual status for new orders (no notification yet)
-                    if (!lastStatusMap.containsKey(order.orderId)) {
-                        lastStatusMap[order.orderId] = computeStatusForOrder(order)
-                    }
                 }
 
-                // Clean up status map entries for orders that no longer exist
+                // Clean up status map entries and listeners for orders that no longer exist
                 val iterator = lastStatusMap.keys.iterator()
                 while (iterator.hasNext()) {
                     val key = iterator.next()
                     if (!seenIds.contains(key)) {
                         iterator.remove()
+                        // Also remove the listener for this order
+                        orderStatusListeners.remove(key)?.let { listener ->
+                            // Listener is on seller node, so we don't remove from buyer node
+                        }
                     }
                 }
 
@@ -154,28 +211,63 @@ class OrdersActivity : AppCompatActivity() {
         })
     }
 
-    // ==== STATUS LOGIC (time-based flow) ====
+    // NEW: Listen to individual order status changes from SELLER's node in real-time
+    private fun setupOrderStatusListener(order: Order) {
+        val orderId = order.orderId
 
-    /**
-     * Virtual status from timestamp + delivery type.
-     * Sequence:
-     *  0–20s   -> Waiting for seller approval
-     *  20–40s  -> Preparing
-     *  40–60s  -> Ready for pickup (pickup) / Delivering (delivery)
-     *  >60s    -> Delivered
-     */
-    private fun computeStatusForOrder(order: Order): String {
-        val now = System.currentTimeMillis()
-        val ageSeconds = ((now - order.timestamp) / 1000).toInt().coerceAtLeast(0)
-        val type = order.deliveryType ?: "DELIVERY"
+        // Skip if already listening to this order
+        if (orderStatusListeners.containsKey(orderId)) return
 
-        return when {
-            ageSeconds < 20 -> "Waiting for seller approval"
-            ageSeconds < 40 -> "Preparing"
-            ageSeconds < 60 ->
-                if (type == "PICKUP") "Ready for pickup" else "Delivering"
-            else -> "Delivered"
+        // Get seller UID from first cart item
+        val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
+        if (sellerUid.isEmpty()) {
+            // If no seller UID, use the status from buyer's node
+            checkAndUpdateStatus(order, order.status ?: "WAITING_APPROVAL")
+            return
         }
+
+        // Listen to status from seller's node: Sellers/{sellerUid}/orders/{orderId}/status
+        val sellerOrderRef = db.reference.child("Sellers").child(sellerUid).child("orders").child(orderId).child("status")
+
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val currentStatus = snapshot.getValue(String::class.java) ?: "WAITING_APPROVAL"
+
+                // Update the order status and check for changes
+                checkAndUpdateStatus(order, currentStatus)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                // If we can't read from seller, fall back to buyer's status
+                checkAndUpdateStatus(order, order.status ?: "WAITING_APPROVAL")
+            }
+        }
+
+        sellerOrderRef.addValueEventListener(listener)
+        orderStatusListeners[orderId] = listener
+    }
+
+    private fun checkAndUpdateStatus(order: Order, currentStatus: String) {
+        val orderId = order.orderId
+        val previousStatus = lastStatusMap[orderId]
+
+        // Update the order in our list if status changed
+        if (previousStatus == null || currentStatus != previousStatus) {
+            // Update the order in our local list
+            val updatedOrder = order.copy(status = currentStatus)
+            val index = orders.indexOfFirst { it.orderId == orderId }
+            if (index != -1) {
+                orders[index] = updatedOrder
+                adapter.notifyItemChanged(index)
+            }
+
+            // Show notification if status changed
+            if (previousStatus != null && currentStatus != previousStatus) {
+                showStatusNotification(updatedOrder, currentStatus)
+            }
+        }
+
+        lastStatusMap[orderId] = currentStatus
     }
 
     // ==== NOTIFICATION HELPERS ====
@@ -204,11 +296,6 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Show a notification when the virtual status changes.
-     * Title = app name (Nastique).
-     * Text  = "Order from <RestaurantName>: <Status>".
-     */
     private fun showStatusNotification(order: Order, statusText: String) {
         if (!hasNotificationPermission()) return
 
@@ -263,22 +350,21 @@ class OrdersActivity : AppCompatActivity() {
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            (orderId + statusText).hashCode(), // requestCode unique per status
+            (orderId + statusText).hashCode(),
             intent,
             pendingFlags
         )
 
-        val title = getString(R.string.app_name)     // e.g. "Nastique"
+        val title = getString(R.string.app_name)
         val text = "Order from $restaurantName: $statusText"
 
-        // UNIQUE notification ID per (order + status)
         val notificationKey = "$orderId-$statusText"
         val notificationId = notificationKey.hashCode()
 
         val builder = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orders)
-            .setContentTitle(title)          // App name
-            .setContentText(text)            // Restaurant name + status
+            .setContentTitle(title)
+            .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

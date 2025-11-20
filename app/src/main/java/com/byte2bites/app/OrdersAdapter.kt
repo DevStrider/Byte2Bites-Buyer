@@ -5,8 +5,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.byte2bites.app.databinding.ItemOrderBinding
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 class OrdersAdapter(
     private val items: MutableList<Order>
@@ -28,32 +27,26 @@ class OrdersAdapter(
         val b = holder.b
 
         val timestamp = order.timestamp
-        val now = System.currentTimeMillis()
-        val ageSeconds = if (timestamp > 0L) {
-            ((now - timestamp) / 1000).toInt().coerceAtLeast(0)
-        } else {
-            0
-        }
 
-        // Status based on age
-        val status = when {
-            ageSeconds < 20 -> "Accepted"
-            ageSeconds < 40 -> "Preparing"
-            ageSeconds < 60 -> "Delivering"
-            else -> "Order complete"
+        // Use ACTUAL status from Firebase (seller's node) or default
+        val status = order.status ?: "WAITING_APPROVAL"
+
+        // Format status for display (make it more user-friendly if needed)
+        val displayStatus = when (status) {
+            "WAITING_APPROVAL" -> "Waiting for approval"
+            "PREPARING" -> "Preparing"
+            "READY FOR PICKUP/DELIVERING" -> {
+                if (order.deliveryType == "PICKUP") "Ready for pickup" else "Delivering"
+            }
+            "DELIVERED" -> "Delivered"
+            else -> status
         }
 
         b.tvOrderId.text = "Order #${order.orderId.takeLast(6)}"
-        b.tvStatus.text = status
+        b.tvStatus.text = displayStatus
 
-        // Time display:
-        //  - while in progress -> relative (Just now / XXs ago / XX min ago)
-        //  - after complete    -> show date only
-        b.tvTime.text = if (status == "Order complete") {
-            formatDate(timestamp)
-        } else {
-            formatAge(ageSeconds)
-        }
+        // Always show the actual order timestamp
+        b.tvTime.text = formatDate(timestamp)
 
         // Items summary (e.g. "2 × Burger\n1 × Fries")
         val itemsSummary = if (order.items.isNullOrEmpty()) {
@@ -78,13 +71,6 @@ class OrdersAdapter(
         items.addAll(newItems)
         notifyDataSetChanged()
     }
-
-    private fun formatAge(ageSeconds: Int): String =
-        when {
-            ageSeconds <= 0 -> "Just now"
-            ageSeconds < 60 -> "${ageSeconds}s ago"
-            else -> "${ageSeconds / 60} min ago"
-        }
 
     private fun formatDate(timestamp: Long): String {
         if (timestamp <= 0L) return ""

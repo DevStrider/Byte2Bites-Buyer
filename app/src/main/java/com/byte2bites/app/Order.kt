@@ -8,12 +8,6 @@ data class Order(
     val timestamp: Long = 0L,
     val items: List<CartItem> = emptyList(),
     val deliveryFeeCents: Long = 0L,
-
-    // NEW: how the order will be delivered
-    // "DELIVERY" or "PICKUP"
-    val deliveryType: String = "DELIVERY",
-
-    // NEW: status/state in the lifecycle
-    // "WAITING_APPROVAL" -> "PREPARING" -> "DELIVERING" / "READY_FOR_PICKUP" -> "DELIVERED"
-    val status: String = "WAITING_APPROVAL"
+    val deliveryType: String = "DELIVERY", // "DELIVERY" or "PICKUP"
+    val status: String? = null // Nullable - will be populated from seller's node
 )

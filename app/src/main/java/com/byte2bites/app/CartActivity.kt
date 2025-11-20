@@ -67,7 +67,7 @@ class CartActivity : AppCompatActivity() {
                     }
                     items.clear()
                     items.addAll(list)
-                    adapter.submit(items)
+                    adapter.submit(list)
                     updateTotals()
                 }
 
@@ -152,7 +152,7 @@ class CartActivity : AppCompatActivity() {
                     Toast.makeText(this, "Please add your address first", Toast.LENGTH_LONG).show()
                     startActivity(Intent(this, AddressActivity::class.java))
                 } else {
-                    verifyStockAndPlaceOrder(
+                    placeOrder(
                         uid = uid,
                         buyerRef = buyerRef,
                         orderItems = orderItems,
@@ -168,7 +168,7 @@ class CartActivity : AppCompatActivity() {
             // PICKUP: address optional
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java) // can be null
-                verifyStockAndPlaceOrder(
+                placeOrder(
                     uid = uid,
                     buyerRef = buyerRef,
                     orderItems = orderItems,
@@ -177,7 +177,7 @@ class CartActivity : AppCompatActivity() {
                     address = addr
                 )
             }.addOnFailureListener {
-                verifyStockAndPlaceOrder(
+                placeOrder(
                     uid = uid,
                     buyerRef = buyerRef,
                     orderItems = orderItems,
@@ -190,62 +190,8 @@ class CartActivity : AppCompatActivity() {
     }
 
     /**
-     * Check quantities against latest inventory in DB.
-     * If OK -> creates order, updates inventory, clears cart.
+     * Place order without stock validation or inventory updates
      */
-    private fun verifyStockAndPlaceOrder(
-        uid: String,
-        buyerRef: DatabaseReference,
-        orderItems: List<CartItem>,
-        sellerUidForCart: String,
-        deliveryType: String,
-        address: Address?
-    ) {
-        val rootRef = db.reference
-
-        rootRef.child("Sellers").get().addOnSuccessListener { sellersSnap ->
-            val outOfStockItems = mutableListOf<String>()
-
-            for (item in orderItems) {
-                val productNode = sellersSnap
-                    .child(item.sellerUid)
-                    .child("products")
-                    .child(item.productID)
-
-                val qtyStr = productNode.child("quantity").getValue(String::class.java) ?: "0"
-                val available = qtyStr.toIntOrNull() ?: 0
-
-                if (item.quantity > available) {
-                    outOfStockItems += "${item.name} (only $available left)"
-                }
-            }
-
-            if (outOfStockItems.isNotEmpty()) {
-                AlertDialog.Builder(this)
-                    .setTitle("Not enough stock")
-                    .setMessage(
-                        "Some items are not available in the requested quantity:\n\n" +
-                                outOfStockItems.joinToString("\n") +
-                                "\n\nPlease update your cart."
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
-                return@addOnSuccessListener
-            }
-
-            placeOrder(
-                uid = uid,
-                buyerRef = buyerRef,
-                orderItems = orderItems,
-                sellerUidForCart = sellerUidForCart,
-                deliveryType = deliveryType,
-                address = address
-            )
-        }.addOnFailureListener { e ->
-            Toast.makeText(this, "Failed to check stock: ${e.message}", Toast.LENGTH_LONG).show()
-        }
-    }
-
     private fun placeOrder(
         uid: String,
         buyerRef: DatabaseReference,
@@ -296,7 +242,7 @@ class CartActivity : AppCompatActivity() {
 
             rootRef.updateChildren(updates).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    updateProductQuantities(orderItems)
+                    // REMOVED: updateProductQuantities(orderItems)
                     buyerRef.child("cart").removeValue()
                     buyerRef.child("cartMeta").removeValue()
                     Toast.makeText(this, "Order placed (pickup)!", Toast.LENGTH_LONG).show()
@@ -355,7 +301,7 @@ class CartActivity : AppCompatActivity() {
 
                     rootRef.updateChildren(updates).addOnCompleteListener { task ->
                         if (task.isSuccessful) {
-                            updateProductQuantities(orderItems)
+                            // REMOVED: updateProductQuantities(orderItems)
                             buyerRef.child("cart").removeValue()
                             buyerRef.child("cartMeta").removeValue()
                             Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
@@ -376,24 +322,7 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
-    // Decrease product quantity (quantity is stored as STRING in DB)
-    private fun updateProductQuantities(orderItems: List<CartItem>) {
-        for (item in orderItems) {
-            val sellerUid = item.sellerUid
-            val productId = item.productID
-            if (sellerUid.isEmpty() || productId.isEmpty()) continue
-
-            val qtyRef = db.reference.child("Sellers").child(sellerUid)
-                .child("products").child(productId).child("quantity")
-
-            qtyRef.get().addOnSuccessListener { snap ->
-                val currentStr = snap.getValue(String::class.java) ?: return@addOnSuccessListener
-                val current = currentStr.toIntOrNull() ?: return@addOnSuccessListener
-                val newQty = (current - item.quantity).coerceAtLeast(0)
-                qtyRef.setValue(newQty.toString())
-            }
-        }
-    }
+    // REMOVED: updateProductQuantities method completely
 
     // helpers
     private fun parsePrice(priceString: String?): Long {
@@ -418,8 +347,6 @@ class CartActivity : AppCompatActivity() {
         val rb = findViewById<RadioButton>(checkedId)
         return if (rb != null && rb.id == b.rbPickup.id) "PICKUP" else "DELIVERY"
     }
-
-    // ==== NOTIFICATIONS ====
 
     // ==== NOTIFICATIONS ====
 
