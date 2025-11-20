@@ -2,8 +2,11 @@ package com.byte2bites.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GestureDetectorCompat
 import androidx.core.widget.addTextChangedListener
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityHomeBinding
@@ -15,9 +18,14 @@ class HomeActivity : AppCompatActivity() {
     private lateinit var b: ActivityHomeBinding
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseDatabase
+    private lateinit var gestureDetector: GestureDetectorCompat
 
     private lateinit var adapter: SellerAdapter
     private val sellers = mutableListOf<Seller>()
+
+    // Swipe sensitivity
+    private val SWIPE_THRESHOLD = 100
+    private val SWIPE_VELOCITY_THRESHOLD = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +36,9 @@ class HomeActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
         db = FirebaseDatabase.getInstance()
+
+        // Gesture detector for swipe between screens
+        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
 
         // Restaurants / shops list
         adapter = SellerAdapter(mutableListOf()) { seller ->
@@ -51,7 +62,64 @@ class HomeActivity : AppCompatActivity() {
         loadSellers()
     }
 
-    // -------- TOP: Welcome NameOfUser --------
+    // === Swipe handling ===
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return if (gestureDetector.onTouchEvent(event)) {
+            true
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        ev?.let { gestureDetector.onTouchEvent(it) }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
+
+        override fun onDown(e: MotionEvent): Boolean = true
+
+        override fun onFling(
+            e1: MotionEvent?,
+            e2: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            if (e1 == null) return false
+
+            val diffX = e2.x - e1.x
+            val diffY = e2.y - e1.y
+
+            if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
+                kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
+                kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
+            ) {
+                if (diffX > 0) {
+                    onSwipeRight()
+                } else {
+                    onSwipeLeft()
+                }
+                return true
+            }
+            return false
+        }
+    }
+
+    private fun onSwipeLeft() {
+        // Home -> Orders
+        startActivity(Intent(this, OrdersActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+    }
+
+    private fun onSwipeRight() {
+        // Home -> Profile
+        startActivity(Intent(this, ProfileActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
+    // === Top: Welcome Name ===
 
     private fun loadUserGreeting() {
         val currentUser = auth.currentUser ?: return
@@ -61,7 +129,6 @@ class HomeActivity : AppCompatActivity() {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     val userProfile = snapshot.getValue(User::class.java)
                     val name = userProfile?.fullName?.takeIf { !it.isNullOrBlank() } ?: "there"
-                    // Changed here: no comma, just "Welcome Name"
                     b.tvTitleHome.text = "Welcome $name"
                 }
 
@@ -71,7 +138,7 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
-    // -------- SEARCH: restaurants/shops only --------
+    // === Search: restaurants/shops only ===
 
     private fun setupSearch() {
         b.etSearch.addTextChangedListener { text ->
@@ -91,7 +158,7 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    // -------- LOAD SELLERS --------
+    // === Load sellers ===
 
     private fun loadSellers() {
         val user = auth.currentUser
@@ -147,12 +214,10 @@ class HomeActivity : AppCompatActivity() {
             })
     }
 
-    // -------- BOTTOM NAV --------
+    // === Bottom nav ===
 
     private fun setupBottomNav() {
-        // Already on Home
         b.navHome.setOnClickListener {
-            // no-op
         }
         b.navOrders.setOnClickListener {
             startActivity(Intent(this, OrdersActivity::class.java))

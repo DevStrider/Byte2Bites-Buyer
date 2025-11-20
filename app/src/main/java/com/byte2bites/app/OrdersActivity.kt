@@ -10,12 +10,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.GestureDetectorCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityOrdersBinding
 import com.google.firebase.auth.FirebaseAuth
@@ -41,24 +44,25 @@ class OrdersActivity : AppCompatActivity() {
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (::adapter.isInitialized && orders.isNotEmpty()) {
-                // For each order, recompute status and notify if changed
                 for (order in orders) {
                     val newStatus = computeStatusForOrder(order)
                     val oldStatus = lastStatusMap[order.orderId]
 
-                    // Only notify when status actually changes
                     if (oldStatus != null && newStatus != oldStatus) {
                         showStatusNotification(order, newStatus)
                     }
                     lastStatusMap[order.orderId] = newStatus
                 }
-                // Refresh list so time/status labels update in UI (if user is on this screen)
                 adapter.notifyDataSetChanged()
             }
-            // Run again every 1 second (accurate timer)
-            uiHandler.postDelayed(this, 1_000L)
+            uiHandler.postDelayed(this, 1_000L) // every 1s
         }
     }
+
+    // ==== Swipe support ====
+    private lateinit var gestureDetector: GestureDetectorCompat
+    private val SWIPE_THRESHOLD = 100
+    private val SWIPE_VELOCITY_THRESHOLD = 100
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,7 +71,10 @@ class OrdersActivity : AppCompatActivity() {
 
         createNotificationChannel()
 
-        // Adapter now takes a callback for "Call restaurant"
+        // Gesture detector for swipe between screens
+        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
+
+        // Adapter with callback for "Call restaurant"
         adapter = OrdersAdapter(mutableListOf()) { order ->
             callRestaurant(order)
         }
@@ -78,7 +85,6 @@ class OrdersActivity : AppCompatActivity() {
         setupVoipButton()
         loadOrders()
 
-        // Start periodic status updates once OrdersActivity is created.
         uiHandler.post(refreshRunnable)
     }
 
@@ -86,6 +92,69 @@ class OrdersActivity : AppCompatActivity() {
         super.onDestroy()
         uiHandler.removeCallbacks(refreshRunnable)
     }
+
+    // === Swipe handling ===
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        return if (gestureDetector.onTouchEvent(event)) {
+            true
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+        ev?.let { gestureDetector.onTouchEvent(it) }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
+
+        override fun onDown(e: MotionEvent): Boolean = true
+
+        override fun onFling(
+            e1: MotionEvent?,
+            e2: MotionEvent,
+            velocityX: Float,
+            velocityY: Float
+        ): Boolean {
+            if (e1 == null) return false
+
+            return try {
+                val diffX = e2.x - e1.x
+                val diffY = e2.y - e1.y
+
+                if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
+                    kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
+                    kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
+                ) {
+                    if (diffX > 0) {
+                        onSwipeRight()
+                    } else {
+                        onSwipeLeft()
+                    }
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+    }
+
+    private fun onSwipeLeft() {
+        startActivity(Intent(this, ProfileActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
+    }
+
+    private fun onSwipeRight() {
+        startActivity(Intent(this, HomeActivity::class.java))
+        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    }
+
+    // ===== Bottom nav & VoIP button =====
 
     private fun setupBottomNav() {
         b.navHome.setOnClickListener {
@@ -100,11 +169,13 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     private fun setupVoipButton() {
-        // Global VoIP button in toolbar/icon (manual)
+        // Global VoIP button in toolbar/icon (manual call screen)
         b.ivVoip.setOnClickListener {
             startActivity(Intent(this, VoipCallActivity::class.java))
         }
     }
+
+    // ===== Load orders & virtual status map =====
 
     private fun loadOrders() {
         val uid = auth.currentUser?.uid
@@ -124,22 +195,18 @@ class OrdersActivity : AppCompatActivity() {
                     list.add(order)
                     seenIds += order.orderId
 
-                    // Initialize virtual status for new orders (no notification yet)
                     if (!lastStatusMap.containsKey(order.orderId)) {
                         lastStatusMap[order.orderId] = computeStatusForOrder(order)
                     }
                 }
 
-                // Clean up status map entries for orders that no longer exist
-                val iterator = lastStatusMap.keys.iterator()
-                while (iterator.hasNext()) {
-                    val key = iterator.next()
-                    if (!seenIds.contains(key)) {
-                        iterator.remove()
-                    }
+                // Clean status entries for orders that disappeared
+                val it = lastStatusMap.keys.iterator()
+                while (it.hasNext()) {
+                    val key = it.next()
+                    if (!seenIds.contains(key)) it.remove()
                 }
 
-                // Newest first
                 list.sortByDescending { it.timestamp }
 
                 orders.clear()
@@ -156,10 +223,9 @@ class OrdersActivity : AppCompatActivity() {
         })
     }
 
-    // ===== CALL RESTAURANT =====
+    // ===== CALL RESTAURANT (per order) =====
 
     private fun callRestaurant(order: Order) {
-        // Get sellerUid from first item in order
         val sellerUid = order.items.firstOrNull()?.sellerUid
 
         if (sellerUid.isNullOrEmpty()) {
@@ -167,30 +233,15 @@ class OrdersActivity : AppCompatActivity() {
             return
         }
 
+        // We only pass the seller UID; IP and port are entered (or remembered) inside VoipCallActivity.
         val intent = Intent(this, VoipCallActivity::class.java).apply {
             putExtra(VoipCallActivity.EXTRA_CALLEE_UID, sellerUid)
-
-            // If seller has already written their IP/port in the order, use them:
-            order.sellerIp?.let { ip ->
-                putExtra(VoipCallActivity.EXTRA_REMOTE_IP, ip)
-            }
-            order.sellerPort?.let { port ->
-                putExtra(VoipCallActivity.EXTRA_REMOTE_PORT, port)
-            }
         }
         startActivity(intent)
     }
 
     // ===== STATUS LOGIC (time-based flow) =====
 
-    /**
-     * Virtual status from timestamp + delivery type.
-     * Sequence:
-     *  0–20s   -> Waiting for seller approval
-     *  20–40s  -> Preparing
-     *  40–60s  -> Ready for pickup (pickup) / Delivering (delivery)
-     *  >60s    -> Delivered
-     */
     private fun computeStatusForOrder(order: Order): String {
         val now = System.currentTimeMillis()
         val ageSeconds = ((now - order.timestamp) / 1000).toInt().coerceAtLeast(0)
@@ -231,11 +282,6 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Show a notification when the virtual status changes.
-     * Title = app name (Nastique).
-     * Text  = "Order from <RestaurantName>: <Status>".
-     */
     private fun showStatusNotification(order: Order, statusText: String) {
         if (!hasNotificationPermission()) return
 
@@ -290,7 +336,7 @@ class OrdersActivity : AppCompatActivity() {
             pendingFlags
         )
 
-        val title = getString(R.string.app_name)     // e.g. "Nastique"
+        val title = getString(R.string.app_name)
         val text = "Order from $restaurantName: $statusText"
 
         val notificationKey = "$orderId-$statusText"
@@ -308,6 +354,6 @@ class OrdersActivity : AppCompatActivity() {
             with(NotificationManagerCompat.from(context)) {
                 notify(notificationId, builder.build())
             }
-        } catch (e: SecurityException) { }
+        } catch (_: SecurityException) { }
     }
 }
