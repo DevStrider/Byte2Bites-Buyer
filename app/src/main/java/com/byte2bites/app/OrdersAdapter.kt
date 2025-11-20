@@ -28,22 +28,12 @@ class OrdersAdapter(
 
         val timestamp = order.timestamp
 
-        // Use ACTUAL status from Firebase (seller's node) or default
-        val status = order.status ?: "WAITING_APPROVAL"
+        // Read status directly from buyer node (no transformations)
+        val status = order.status ?: "UNKNOWN"
 
-        // Format status for display (make it more user-friendly if needed)
-        val displayStatus = when (status) {
-            "WAITING_APPROVAL" -> "Waiting for approval"
-            "PREPARING" -> "Preparing"
-            "READY FOR PICKUP/DELIVERING" -> {
-                if (order.deliveryType == "PICKUP") "Ready for pickup" else "Delivering"
-            }
-            "DELIVERED" -> "Delivered"
-            else -> status
-        }
-
+        // Display the raw status text
         b.tvOrderId.text = "Order #${order.orderId.takeLast(6)}"
-        b.tvStatus.text = displayStatus
+        b.tvStatus.text = status
 
         // Always show the actual order timestamp
         b.tvTime.text = formatDate(timestamp)

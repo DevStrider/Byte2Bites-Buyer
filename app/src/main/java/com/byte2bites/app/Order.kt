@@ -9,5 +9,5 @@ data class Order(
     val items: List<CartItem> = emptyList(),
     val deliveryFeeCents: Long = 0L,
     val deliveryType: String = "DELIVERY", // "DELIVERY" or "PICKUP"
-    val status: String? = null // Nullable - will be populated from seller's node
+    val status: String? = null // This will be synced from seller node
 )

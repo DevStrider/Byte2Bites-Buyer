@@ -174,8 +174,8 @@ class OrdersActivity : AppCompatActivity() {
                 for (child in snapshot.children) {
                     val order = child.getValue(Order::class.java) ?: continue
 
-                    // Set up listener to get REAL-TIME status from seller's node
-                    setupOrderStatusListener(order)
+                    // Set up listener to sync status from seller to buyer
+                    setupOrderStatusSyncListener(order)
 
                     list.add(order)
                     seenIds += order.orderId
@@ -211,9 +211,10 @@ class OrdersActivity : AppCompatActivity() {
         })
     }
 
-    // NEW: Listen to individual order status changes from SELLER's node in real-time
-    private fun setupOrderStatusListener(order: Order) {
+    // Listen to seller status changes and sync to buyer node
+    private fun setupOrderStatusSyncListener(order: Order) {
         val orderId = order.orderId
+        val buyerUid = auth.currentUser?.uid ?: return
 
         // Skip if already listening to this order
         if (orderStatusListeners.containsKey(orderId)) return
@@ -221,8 +222,6 @@ class OrdersActivity : AppCompatActivity() {
         // Get seller UID from first cart item
         val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
         if (sellerUid.isEmpty()) {
-            // If no seller UID, use the status from buyer's node
-            checkAndUpdateStatus(order, order.status ?: "WAITING_APPROVAL")
             return
         }
 
@@ -231,15 +230,15 @@ class OrdersActivity : AppCompatActivity() {
 
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val currentStatus = snapshot.getValue(String::class.java) ?: "WAITING_APPROVAL"
+                val sellerStatus = snapshot.getValue(String::class.java) ?: "DENIED"
 
-                // Update the order status and check for changes
-                checkAndUpdateStatus(order, currentStatus)
+                // Update buyer node with seller's status
+                updateBuyerOrderStatus(buyerUid, orderId, sellerStatus)
             }
 
             override fun onCancelled(error: DatabaseError) {
-                // If we can't read from seller, fall back to buyer's status
-                checkAndUpdateStatus(order, order.status ?: "WAITING_APPROVAL")
+                // If we can't read from seller, set status to DENIED
+                updateBuyerOrderStatus(buyerUid, orderId, "DENIED")
             }
         }
 
@@ -247,27 +246,16 @@ class OrdersActivity : AppCompatActivity() {
         orderStatusListeners[orderId] = listener
     }
 
-    private fun checkAndUpdateStatus(order: Order, currentStatus: String) {
-        val orderId = order.orderId
-        val previousStatus = lastStatusMap[orderId]
+    // Update the status in buyer's node to match seller's node
+    private fun updateBuyerOrderStatus(buyerUid: String, orderId: String, sellerStatus: String) {
+        val buyerOrderRef = db.reference.child("Buyers").child(buyerUid).child("orders").child(orderId).child("status")
 
-        // Update the order in our list if status changed
-        if (previousStatus == null || currentStatus != previousStatus) {
-            // Update the order in our local list
-            val updatedOrder = order.copy(status = currentStatus)
-            val index = orders.indexOfFirst { it.orderId == orderId }
-            if (index != -1) {
-                orders[index] = updatedOrder
-                adapter.notifyItemChanged(index)
-            }
-
-            // Show notification if status changed
-            if (previousStatus != null && currentStatus != previousStatus) {
-                showStatusNotification(updatedOrder, currentStatus)
+        buyerOrderRef.setValue(sellerStatus).addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                // Status updated in buyer node successfully
+                // The loadOrders() listener will automatically refresh the UI
             }
         }
-
-        lastStatusMap[orderId] = currentStatus
     }
 
     // ==== NOTIFICATION HELPERS ====
