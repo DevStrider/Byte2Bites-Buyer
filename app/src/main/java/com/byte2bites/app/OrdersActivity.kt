@@ -67,7 +67,10 @@ class OrdersActivity : AppCompatActivity() {
 
         createNotificationChannel()
 
-        adapter = OrdersAdapter(mutableListOf())
+        // Adapter now takes a callback for "Call restaurant"
+        adapter = OrdersAdapter(mutableListOf()) { order ->
+            callRestaurant(order)
+        }
         b.rvOrders.layoutManager = LinearLayoutManager(this)
         b.rvOrders.adapter = adapter
 
@@ -76,13 +79,11 @@ class OrdersActivity : AppCompatActivity() {
         loadOrders()
 
         // Start periodic status updates once OrdersActivity is created.
-        // This keeps running while the app process is alive, even in background.
         uiHandler.post(refreshRunnable)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        // Stop the runnable when this Activity is destroyed
         uiHandler.removeCallbacks(refreshRunnable)
     }
 
@@ -99,6 +100,7 @@ class OrdersActivity : AppCompatActivity() {
     }
 
     private fun setupVoipButton() {
+        // Global VoIP button in toolbar/icon (manual)
         b.ivVoip.setOnClickListener {
             startActivity(Intent(this, VoipCallActivity::class.java))
         }
@@ -137,7 +139,7 @@ class OrdersActivity : AppCompatActivity() {
                     }
                 }
 
-                // Newest orders at top
+                // Newest first
                 list.sortByDescending { it.timestamp }
 
                 orders.clear()
@@ -154,7 +156,32 @@ class OrdersActivity : AppCompatActivity() {
         })
     }
 
-    // ==== STATUS LOGIC (time-based flow) ====
+    // ===== CALL RESTAURANT =====
+
+    private fun callRestaurant(order: Order) {
+        // Get sellerUid from first item in order
+        val sellerUid = order.items.firstOrNull()?.sellerUid
+
+        if (sellerUid.isNullOrEmpty()) {
+            Toast.makeText(this, "No seller info for this order.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val intent = Intent(this, VoipCallActivity::class.java).apply {
+            putExtra(VoipCallActivity.EXTRA_CALLEE_UID, sellerUid)
+
+            // If seller has already written their IP/port in the order, use them:
+            order.sellerIp?.let { ip ->
+                putExtra(VoipCallActivity.EXTRA_REMOTE_IP, ip)
+            }
+            order.sellerPort?.let { port ->
+                putExtra(VoipCallActivity.EXTRA_REMOTE_PORT, port)
+            }
+        }
+        startActivity(intent)
+    }
+
+    // ===== STATUS LOGIC (time-based flow) =====
 
     /**
      * Virtual status from timestamp + delivery type.
@@ -167,7 +194,7 @@ class OrdersActivity : AppCompatActivity() {
     private fun computeStatusForOrder(order: Order): String {
         val now = System.currentTimeMillis()
         val ageSeconds = ((now - order.timestamp) / 1000).toInt().coerceAtLeast(0)
-        val type = order.deliveryType ?: "DELIVERY"
+        val type = order.deliveryType
 
         return when {
             ageSeconds < 20 -> "Waiting for seller approval"
@@ -178,7 +205,7 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // ==== NOTIFICATION HELPERS ====
+    // ===== NOTIFICATION HELPERS =====
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -212,23 +239,19 @@ class OrdersActivity : AppCompatActivity() {
     private fun showStatusNotification(order: Order, statusText: String) {
         if (!hasNotificationPermission()) return
 
-        // Try to get seller UID from first cart item
         val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
 
         if (sellerUid.isEmpty()) {
-            // Fallback if missing
             sendStatusNotification("your restaurant", statusText, order.orderId)
             return
         }
 
-        // Check cache first
         val cached = sellerNameCache[sellerUid]
         if (cached != null) {
             sendStatusNotification(cached, statusText, order.orderId)
             return
         }
 
-        // Fetch restaurant name from DB
         db.reference.child("Sellers").child(sellerUid).child("name")
             .get()
             .addOnSuccessListener { snap ->
@@ -250,7 +273,6 @@ class OrdersActivity : AppCompatActivity() {
 
         val context = this
 
-        // When user taps notification → open OrdersActivity
         val intent = Intent(context, OrdersActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -263,7 +285,7 @@ class OrdersActivity : AppCompatActivity() {
 
         val pendingIntent = PendingIntent.getActivity(
             context,
-            (orderId + statusText).hashCode(), // requestCode unique per status
+            (orderId + statusText).hashCode(),
             intent,
             pendingFlags
         )
@@ -271,14 +293,13 @@ class OrdersActivity : AppCompatActivity() {
         val title = getString(R.string.app_name)     // e.g. "Nastique"
         val text = "Order from $restaurantName: $statusText"
 
-        // UNIQUE notification ID per (order + status)
         val notificationKey = "$orderId-$statusText"
         val notificationId = notificationKey.hashCode()
 
         val builder = NotificationCompat.Builder(context, NOTIF_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orders)
-            .setContentTitle(title)          // App name
-            .setContentText(text)            // Restaurant name + status
+            .setContentTitle(title)
+            .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -287,6 +308,6 @@ class OrdersActivity : AppCompatActivity() {
             with(NotificationManagerCompat.from(context)) {
                 notify(notificationId, builder.build())
             }
-        } catch (e: SecurityException) {}
+        } catch (e: SecurityException) { }
     }
 }

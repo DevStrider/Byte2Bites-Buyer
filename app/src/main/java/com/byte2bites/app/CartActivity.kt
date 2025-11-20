@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.RadioButton
@@ -19,6 +20,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityCartBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
+
+import java.net.InetAddress
 
 class CartActivity : AppCompatActivity() {
 
@@ -104,7 +107,7 @@ class CartActivity : AppCompatActivity() {
                     .get()
                     .addOnSuccessListener { feeSnap ->
                         val feeStr = feeSnap.getValue(String::class.java) ?: "0"
-                        // EXACT fee from DB (e.g. "60" -> 60.00), no bonus added
+                        // EXACT fee from DB (e.g. "60" -> 60.00), no extra
                         val deliveryFeeCents = parsePrice(feeStr)
                         val grandTotal = itemsTotal + deliveryFeeCents
                         b.tvTotal.text =
@@ -259,6 +262,10 @@ class CartActivity : AppCompatActivity() {
         val ts = System.currentTimeMillis()
         val orderId = rootRef.push().key ?: ts.toString()
 
+        // 🔹 Get buyer device IP & choose a VoIP port
+        val buyerIp = getLocalIpAddress()
+        val buyerPort = 5000 // fixed app port (you can change if you want)
+
         if (deliveryType == "PICKUP") {
             val deliveryFeeCents = 0L
             val orderTotal = itemsTotalCents + deliveryFeeCents
@@ -272,7 +279,10 @@ class CartActivity : AppCompatActivity() {
                 items = orderItems,
                 deliveryFeeCents = deliveryFeeCents,
                 deliveryType = deliveryType,
-                status = "WAITING_APPROVAL"
+                status = "WAITING_APPROVAL",
+                buyerIp = buyerIp,
+                buyerPort = buyerPort
+                // sellerIp/sellerPort will be filled later by seller app
             )
 
             val updates = hashMapOf<String, Any?>()
@@ -291,6 +301,8 @@ class CartActivity : AppCompatActivity() {
                     updates["$sellerBase/deliveryFeeCents"] = 0L
                     updates["$sellerBase/deliveryType"] = deliveryType
                     updates["$sellerBase/status"] = "WAITING_APPROVAL"
+                    updates["$sellerBase/buyerIp"] = buyerIp
+                    updates["$sellerBase/buyerPort"] = buyerPort
                 }
             }
 
@@ -329,7 +341,9 @@ class CartActivity : AppCompatActivity() {
                         items = orderItems,
                         deliveryFeeCents = deliveryFeeCents,
                         deliveryType = deliveryType,
-                        status = "WAITING_APPROVAL"
+                        status = "WAITING_APPROVAL",
+                        buyerIp = buyerIp,
+                        buyerPort = buyerPort
                     )
 
                     val updates = hashMapOf<String, Any?>()
@@ -350,6 +364,8 @@ class CartActivity : AppCompatActivity() {
                                 if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
                             updates["$sellerBase/deliveryType"] = deliveryType
                             updates["$sellerBase/status"] = "WAITING_APPROVAL"
+                            updates["$sellerBase/buyerIp"] = buyerIp
+                            updates["$sellerBase/buyerPort"] = buyerPort
                         }
                     }
 
@@ -395,6 +411,24 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    // === IP helper for buyer device ===
+    private fun getLocalIpAddress(): String? {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val ipInt = wm.connectionInfo.ipAddress
+            InetAddress.getByAddress(
+                byteArrayOf(
+                    (ipInt and 0xff).toByte(),
+                    (ipInt shr 8 and 0xff).toByte(),
+                    (ipInt shr 16 and 0xff).toByte(),
+                    (ipInt shr 24 and 0xff).toByte()
+                )
+            ).hostAddress
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // helpers
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
@@ -418,8 +452,6 @@ class CartActivity : AppCompatActivity() {
         val rb = findViewById<RadioButton>(checkedId)
         return if (rb != null && rb.id == b.rbPickup.id) "PICKUP" else "DELIVERY"
     }
-
-    // ==== NOTIFICATIONS ====
 
     // ==== NOTIFICATIONS ====
 

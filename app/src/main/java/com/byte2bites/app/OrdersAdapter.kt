@@ -9,7 +9,8 @@ import java.util.Date
 import java.util.Locale
 
 class OrdersAdapter(
-    private val items: MutableList<Order>
+    private val items: MutableList<Order>,
+    private val onCallClicked: (Order) -> Unit
 ) : RecyclerView.Adapter<OrdersAdapter.VH>() {
 
     inner class VH(val b: ItemOrderBinding) : RecyclerView.ViewHolder(b.root)
@@ -35,7 +36,7 @@ class OrdersAdapter(
             0
         }
 
-        // Status based on age
+        // Simple human-readable status for the card (matches previous logic)
         val status = when {
             ageSeconds < 20 -> "Accepted"
             ageSeconds < 40 -> "Preparing"
@@ -46,16 +47,14 @@ class OrdersAdapter(
         b.tvOrderId.text = "Order #${order.orderId.takeLast(6)}"
         b.tvStatus.text = status
 
-        // Time display:
-        //  - while in progress -> relative (Just now / XXs ago / XX min ago)
-        //  - after complete    -> show date only
+        // While active → relative time; when complete → show date+time
         b.tvTime.text = if (status == "Order complete") {
             formatDate(timestamp)
         } else {
             formatAge(ageSeconds)
         }
 
-        // Items summary (e.g. "2 × Burger\n1 × Fries")
+        // Items summary, e.g. "2 × Burger\n1 × Fries"
         val itemsSummary = if (order.items.isNullOrEmpty()) {
             "No items"
         } else {
@@ -69,6 +68,11 @@ class OrdersAdapter(
 
         // Total
         b.tvTotal.text = "Total: ${formatCurrency(order.totalCents)}"
+
+        // Call restaurant
+        b.btnCallRestaurant.setOnClickListener {
+            onCallClicked(order)
+        }
     }
 
     override fun getItemCount(): Int = items.size
