@@ -36,7 +36,7 @@ class CartActivity : AppCompatActivity() {
     private val NOTIF_CHANNEL_ID = "orders_channel"
     private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
-    // 💰 Delivery prices (in cents) – adjust to your real values
+    // 💰 Delivery prices (in cents)
     private val DELIVERY_FEE_0_TO_10_KM_CENTS = 1500L  // 15.00
     private val DELIVERY_FEE_10_TO_20_KM_CENTS = 2500L // 25.00
     private val DELIVERY_FEE_20_TO_30_KM_CENTS = 3500L // 35.00
@@ -90,7 +90,7 @@ class CartActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // no special handling needed – if granted, notifications will work
+        // nothing special needed here
     }
 
     // ===== CART LOADING + TOTALS =====
@@ -304,9 +304,6 @@ class CartActivity : AppCompatActivity() {
     /**
      * Check quantities against latest inventory in DB.
      * If OK -> creates order.
-     *
-     * ⚠️ NOTE: We NO LONGER decrease product quantity in seller inventory,
-     * only verify that requested quantity <= available.
      */
     private fun verifyStockAndPlaceOrder(
         uid: String,
@@ -382,23 +379,25 @@ class CartActivity : AppCompatActivity() {
             val deliveryFeeCents = 0L
             val orderTotal = itemsTotalCents + deliveryFeeCents
 
-            val order = Order(
-                orderId = orderId,
-                buyerUid = uid,
-                totalCents = orderTotal,
-                address = address,
-                timestamp = ts,
-                items = orderItems,
-                deliveryFeeCents = deliveryFeeCents,
-                deliveryType = deliveryType,
-                status = "WAITING_APPROVAL",
-                buyerIp = buyerIp,
-                buyerPort = buyerPort
+            // 🔸 Buyer order: NO status field
+            val buyerOrderMap = hashMapOf<String, Any?>(
+                "orderId" to orderId,
+                "buyerUid" to uid,
+                "totalCents" to orderTotal,
+                "address" to address,
+                "timestamp" to ts,
+                "items" to orderItems,
+                "deliveryFeeCents" to deliveryFeeCents,
+                "deliveryType" to deliveryType,
+                "buyerIp" to buyerIp,
+                "buyerPort" to buyerPort
+                // intentionally NO "status"
             )
 
             val updates = hashMapOf<String, Any?>()
-            updates["Buyers/$uid/orders/$orderId"] = order
+            updates["Buyers/$uid/orders/$orderId"] = buyerOrderMap
 
+            // 🔹 Seller orders WITH status
             orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
                 if (!sellerUid.isNullOrEmpty()) {
                     val sellerBase = "Sellers/$sellerUid/orders/$orderId"
@@ -470,23 +469,25 @@ class CartActivity : AppCompatActivity() {
 
                     val orderTotal = itemsTotalCents + deliveryFeeCents
 
-                    val order = Order(
-                        orderId = orderId,
-                        buyerUid = uid,
-                        totalCents = orderTotal,
-                        address = address,
-                        timestamp = ts,
-                        items = orderItems,
-                        deliveryFeeCents = deliveryFeeCents,
-                        deliveryType = deliveryType,
-                        status = "WAITING_APPROVAL",
-                        buyerIp = buyerIp,
-                        buyerPort = buyerPort
+                    // 🔸 Buyer order: NO status field
+                    val buyerOrderMap = hashMapOf<String, Any?>(
+                        "orderId" to orderId,
+                        "buyerUid" to uid,
+                        "totalCents" to orderTotal,
+                        "address" to address,
+                        "timestamp" to ts,
+                        "items" to orderItems,
+                        "deliveryFeeCents" to deliveryFeeCents,
+                        "deliveryType" to deliveryType,
+                        "buyerIp" to buyerIp,
+                        "buyerPort" to buyerPort
+                        // intentionally NO "status"
                     )
 
                     val updates = hashMapOf<String, Any?>()
-                    updates["Buyers/$uid/orders/$orderId"] = order
+                    updates["Buyers/$uid/orders/$orderId"] = buyerOrderMap
 
+                    // 🔹 Seller orders WITH status
                     orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
                         if (!sellerUid.isNullOrEmpty()) {
                             val sellerBase = "Sellers/$sellerUid/orders/$orderId"
@@ -595,7 +596,7 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
-    // ==== NOTIFICATIONS (from second file, heads-up style) ====
+    // ==== NOTIFICATIONS (heads-up) ====
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -680,7 +681,6 @@ class CartActivity : AppCompatActivity() {
             with(NotificationManagerCompat.from(this)) {
                 notify(orderId.hashCode(), builder.build())
             }
-        } catch (e: SecurityException) {
-        }
+        } catch (e: SecurityException) { }
     }
 }
