@@ -14,8 +14,10 @@ class CartAdapter(
 
     inner class VH(val b: ItemCartBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(item: CartItem) {
+            val ctx = b.root.context
+            val symbol = ctx.getString(R.string.currency_symbol)
             b.tvName.text = item.name
-            b.tvPrice.text = item.price
+            b.tvPrice.text = "$symbol${item.price}"
             b.tvQty.text = "Qty: ${item.quantity}"
             Glide.with(b.ivThumb)
                 .load(item.imageUrl)

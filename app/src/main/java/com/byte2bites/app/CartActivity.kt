@@ -13,6 +13,7 @@ import android.widget.RadioButton
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -20,8 +21,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityCartBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
-
 import java.net.InetAddress
+import kotlin.math.*
 
 class CartActivity : AppCompatActivity() {
 
@@ -33,6 +34,12 @@ class CartActivity : AppCompatActivity() {
     private val items = mutableListOf<CartItem>()
 
     private val NOTIF_CHANNEL_ID = "orders_channel"
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
+
+    // 💰 Delivery prices (in cents) – adjust to your real values
+    private val DELIVERY_FEE_0_TO_10_KM_CENTS = 1500L  // 15.00
+    private val DELIVERY_FEE_10_TO_20_KM_CENTS = 2500L // 25.00
+    private val DELIVERY_FEE_20_TO_30_KM_CENTS = 3500L // 35.00
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +47,7 @@ class CartActivity : AppCompatActivity() {
         setContentView(b.root)
 
         createNotificationChannel()
+        requestNotificationPermission()
 
         // Back arrow
         b.ivBack.setOnClickListener { finish() }
@@ -57,6 +65,35 @@ class CartActivity : AppCompatActivity() {
 
         loadCart()
     }
+
+    // ===== NOTIFICATION PERMISSION =====
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // no special handling needed – if granted, notifications will work
+    }
+
+    // ===== CART LOADING + TOTALS =====
 
     private fun loadCart() {
         val uid = auth.currentUser?.uid ?: return
@@ -80,42 +117,106 @@ class CartActivity : AppCompatActivity() {
             })
     }
 
-    /** compute items total + (optional) delivery fee and show in tvTotal */
+    /**
+     * Compute items total + dynamic delivery fee (based on distance) and
+     * show them in the 3 rows:
+     *   - Subtotal
+     *   - Delivery
+     *   - Total
+     */
     private fun updateTotals() {
         val uid = auth.currentUser?.uid ?: return
         val itemsTotal = totalCents(items)
 
-        val selectedDeliveryType = getSelectedDeliveryType()
-
-        // PICKUP -> absolutely NO delivery fee
-        if (selectedDeliveryType == "PICKUP") {
-            b.tvTotal.text = "Total (pickup): ${formatCurrency(itemsTotal)}"
+        if (items.isEmpty()) {
+            b.tvSubtotal.text = formatCurrency(0)
+            b.tvDeliveryFee.text = "--"
+            b.tvGrandTotal.text = formatCurrency(0)
             return
         }
 
-        // DELIVERY -> use exactly deliveryInfo from seller
-        db.reference.child("Buyers").child(uid).child("cartMeta").child("sellerUid")
-            .get()
-            .addOnSuccessListener { metaSnap ->
-                val sellerUid = metaSnap.getValue(String::class.java)
-                if (sellerUid.isNullOrEmpty()) {
-                    b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
+        val deliveryType = getSelectedDeliveryType()
+
+        // PICKUP → no delivery fee
+        if (deliveryType == "PICKUP") {
+            b.tvSubtotal.text = formatCurrency(itemsTotal)
+            b.tvDeliveryFee.text = "Pickup"
+            b.tvGrandTotal.text = formatCurrency(itemsTotal)
+            return
+        }
+
+        // DELIVERY → need buyer address and seller location
+        val buyerRef = db.reference.child("Buyers").child(uid)
+
+        // 1) Buyer address (with lat/long)
+        buyerRef.child("address").get()
+            .addOnSuccessListener { addrSnap ->
+                val address = addrSnap.getValue(Address::class.java)
+                val buyerLat = address?.latitude
+                val buyerLng = address?.longitude
+
+                if (address == null || buyerLat == null || buyerLng == null) {
+                    // Has items but no map location yet
+                    b.tvSubtotal.text = formatCurrency(itemsTotal)
+                    b.tvDeliveryFee.text = "Add address"
+                    b.tvGrandTotal.text = formatCurrency(itemsTotal)
                     return@addOnSuccessListener
                 }
 
-                db.reference.child("Sellers").child(sellerUid).child("deliveryInfo")
-                    .get()
-                    .addOnSuccessListener { feeSnap ->
-                        val feeStr = feeSnap.getValue(String::class.java) ?: "0"
-                        // EXACT fee from DB (e.g. "60" -> 60.00), no extra
-                        val deliveryFeeCents = parsePrice(feeStr)
-                        val grandTotal = itemsTotal + deliveryFeeCents
-                        b.tvTotal.text =
-                            "Items: ${formatCurrency(itemsTotal)}  + Delivery: ${formatCurrency(deliveryFeeCents)}  = Total: ${formatCurrency(grandTotal)}"
+                // 2) Which seller is this cart for?
+                buyerRef.child("cartMeta").child("sellerUid").get()
+                    .addOnSuccessListener { metaSnap ->
+                        val sellerUid = metaSnap.getValue(String::class.java)
+                        if (sellerUid.isNullOrEmpty()) {
+                            b.tvSubtotal.text = formatCurrency(itemsTotal)
+                            b.tvDeliveryFee.text = "--"
+                            b.tvGrandTotal.text = formatCurrency(itemsTotal)
+                            return@addOnSuccessListener
+                        }
+
+                        // 3) Seller location
+                        db.reference.child("Sellers").child(sellerUid).get()
+                            .addOnSuccessListener { sellerSnap ->
+                                val sLatAny = sellerSnap.child("latitude").value
+                                val sLngAny = sellerSnap.child("longitude").value
+
+                                val sellerLat = sLatAny?.toString()?.toDoubleOrNull()
+                                val sellerLng = sLngAny?.toString()?.toDoubleOrNull()
+
+                                if (sellerLat == null || sellerLng == null) {
+                                    b.tvSubtotal.text = formatCurrency(itemsTotal)
+                                    b.tvDeliveryFee.text = "Seller location missing"
+                                    b.tvGrandTotal.text = formatCurrency(itemsTotal)
+                                    return@addOnSuccessListener
+                                }
+
+                                // 4) Distance + fee
+                                val distKm = haversineKm(buyerLat, buyerLng, sellerLat, sellerLng)
+                                val deliveryFeeCents = calculateDeliveryFeeCents(distKm)
+
+                                b.tvSubtotal.text = formatCurrency(itemsTotal)
+
+                                if (deliveryFeeCents < 0L) {
+                                    // > 30km: no delivery
+                                    b.tvDeliveryFee.text = "Not available"
+                                    b.tvGrandTotal.text = formatCurrency(itemsTotal)
+                                } else {
+                                    val grandTotal = itemsTotal + deliveryFeeCents
+                                    b.tvDeliveryFee.text = formatCurrency(deliveryFeeCents)
+                                    b.tvGrandTotal.text = formatCurrency(grandTotal)
+                                }
+                            }
+                            .addOnFailureListener {
+                                b.tvSubtotal.text = formatCurrency(itemsTotal)
+                                b.tvDeliveryFee.text = "--"
+                                b.tvGrandTotal.text = formatCurrency(itemsTotal)
+                            }
                     }
-                    .addOnFailureListener {
-                        b.tvTotal.text = "Total: ${formatCurrency(itemsTotal)}"
-                    }
+            }
+            .addOnFailureListener {
+                b.tvSubtotal.text = formatCurrency(itemsTotal)
+                b.tvDeliveryFee.text = "--"
+                b.tvGrandTotal.text = formatCurrency(itemsTotal)
             }
     }
 
@@ -127,6 +228,8 @@ class CartActivity : AppCompatActivity() {
         val ref = db.reference.child("Buyers").child(uid).child("cart").child(item.productID)
         if (q == 0) ref.removeValue() else ref.child("quantity").setValue(q)
     }
+
+    // ===== CHECKOUT + ORDER CREATION =====
 
     private fun checkout() {
         val uid = auth.currentUser?.uid ?: run {
@@ -147,12 +250,18 @@ class CartActivity : AppCompatActivity() {
         }
         val sellerUidForCart = sellerUids.first()
 
-        // DELIVERY: must have address
         if (deliveryType == "DELIVERY") {
+            // DELIVERY: must have full address + map location
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java)
+                val buyerLat = addr?.latitude
+                val buyerLng = addr?.longitude
+
                 if (addr == null) {
                     Toast.makeText(this, "Please add your address first", Toast.LENGTH_LONG).show()
+                    startActivity(Intent(this, AddressActivity::class.java))
+                } else if (buyerLat == null || buyerLng == null) {
+                    Toast.makeText(this, "Please pick your location on the map for delivery", Toast.LENGTH_LONG).show()
                     startActivity(Intent(this, AddressActivity::class.java))
                 } else {
                     verifyStockAndPlaceOrder(
@@ -194,7 +303,10 @@ class CartActivity : AppCompatActivity() {
 
     /**
      * Check quantities against latest inventory in DB.
-     * If OK -> creates order, updates inventory, clears cart.
+     * If OK -> creates order.
+     *
+     * ⚠️ NOTE: We NO LONGER decrease product quantity in seller inventory,
+     * only verify that requested quantity <= available.
      */
     private fun verifyStockAndPlaceOrder(
         uid: String,
@@ -262,11 +374,11 @@ class CartActivity : AppCompatActivity() {
         val ts = System.currentTimeMillis()
         val orderId = rootRef.push().key ?: ts.toString()
 
-        // 🔹 Get buyer device IP & choose a VoIP port
         val buyerIp = getLocalIpAddress()
-        val buyerPort = 5000 // fixed app port (you can change if you want)
+        val buyerPort = 5000 // your fixed VoIP port
 
         if (deliveryType == "PICKUP") {
+            // PICKUP: no delivery fee
             val deliveryFeeCents = 0L
             val orderTotal = itemsTotalCents + deliveryFeeCents
 
@@ -282,7 +394,6 @@ class CartActivity : AppCompatActivity() {
                 status = "WAITING_APPROVAL",
                 buyerIp = buyerIp,
                 buyerPort = buyerPort
-                // sellerIp/sellerPort will be filled later by seller app
             )
 
             val updates = hashMapOf<String, Any?>()
@@ -308,7 +419,6 @@ class CartActivity : AppCompatActivity() {
 
             rootRef.updateChildren(updates).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
-                    updateProductQuantities(orderItems)
                     buyerRef.child("cart").removeValue()
                     buyerRef.child("cartMeta").removeValue()
                     Toast.makeText(this, "Order placed (pickup)!", Toast.LENGTH_LONG).show()
@@ -323,13 +433,41 @@ class CartActivity : AppCompatActivity() {
                 }
             }
         } else {
-            // DELIVERY
-            rootRef.child("Sellers").child(sellerUidForCart).child("deliveryInfo")
+            // DELIVERY: dynamic fee based on distance
+            val buyerLat = address?.latitude
+            val buyerLng = address?.longitude
+
+            if (buyerLat == null || buyerLng == null) {
+                Toast.makeText(this, "Address location missing for delivery", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            rootRef.child("Sellers").child(sellerUidForCart)
                 .get()
-                .addOnSuccessListener { feeSnap ->
-                    val deliveryStr = feeSnap.getValue(String::class.java) ?: "0"
-                    // EXACT fee from DB
-                    val deliveryFeeCents = parsePrice(deliveryStr)
+                .addOnSuccessListener { sellerSnap ->
+                    val sLatAny = sellerSnap.child("latitude").value
+                    val sLngAny = sellerSnap.child("longitude").value
+
+                    val sellerLat = sLatAny?.toString()?.toDoubleOrNull()
+                    val sellerLng = sLngAny?.toString()?.toDoubleOrNull()
+
+                    if (sellerLat == null || sellerLng == null) {
+                        Toast.makeText(this, "Seller location not configured for delivery", Toast.LENGTH_LONG).show()
+                        return@addOnSuccessListener
+                    }
+
+                    val distKm = haversineKm(buyerLat, buyerLng, sellerLat, sellerLng)
+                    val deliveryFeeCents = calculateDeliveryFeeCents(distKm)
+
+                    if (deliveryFeeCents < 0L) {
+                        Toast.makeText(
+                            this,
+                            "Delivery not available for distance > 30 km. Please choose pickup.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@addOnSuccessListener
+                    }
+
                     val orderTotal = itemsTotalCents + deliveryFeeCents
 
                     val order = Order(
@@ -371,7 +509,6 @@ class CartActivity : AppCompatActivity() {
 
                     rootRef.updateChildren(updates).addOnCompleteListener { task ->
                         if (task.isSuccessful) {
-                            updateProductQuantities(orderItems)
                             buyerRef.child("cart").removeValue()
                             buyerRef.child("cartMeta").removeValue()
                             Toast.makeText(this, "Order placed!", Toast.LENGTH_LONG).show()
@@ -387,31 +524,12 @@ class CartActivity : AppCompatActivity() {
                     }
                 }
                 .addOnFailureListener { e ->
-                    Toast.makeText(this, "Failed to load delivery fee: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Failed to load seller location: ${e.message}", Toast.LENGTH_LONG).show()
                 }
         }
     }
 
-    // Decrease product quantity (quantity is stored as STRING in DB)
-    private fun updateProductQuantities(orderItems: List<CartItem>) {
-        for (item in orderItems) {
-            val sellerUid = item.sellerUid
-            val productId = item.productID
-            if (sellerUid.isEmpty() || productId.isEmpty()) continue
-
-            val qtyRef = db.reference.child("Sellers").child(sellerUid)
-                .child("products").child(productId).child("quantity")
-
-            qtyRef.get().addOnSuccessListener { snap ->
-                val currentStr = snap.getValue(String::class.java) ?: return@addOnSuccessListener
-                val current = currentStr.toIntOrNull() ?: return@addOnSuccessListener
-                val newQty = (current - item.quantity).coerceAtLeast(0)
-                qtyRef.setValue(newQty.toString())
-            }
-        }
-    }
-
-    // === IP helper for buyer device ===
+    // === IP helper ===
     private fun getLocalIpAddress(): String? {
         return try {
             val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
@@ -429,7 +547,8 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
-    // helpers
+    // ====== helpers ======
+
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
         val digitsOnly = priceString.filter { it.isDigit() }
@@ -453,15 +572,44 @@ class CartActivity : AppCompatActivity() {
         return if (rb != null && rb.id == b.rbPickup.id) "PICKUP" else "DELIVERY"
     }
 
-    // ==== NOTIFICATIONS ====
+    // ==== Distance + delivery fee helpers ====
+
+    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val R = 6371.0 // Earth radius in km
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2.0) +
+                cos(Math.toRadians(lat1)) *
+                cos(Math.toRadians(lat2)) *
+                sin(dLon / 2).pow(2.0)
+        val c = 2 * asin(sqrt(a))
+        return R * c
+    }
+
+    private fun calculateDeliveryFeeCents(distanceKm: Double): Long {
+        return when {
+            distanceKm <= 10.0 -> DELIVERY_FEE_0_TO_10_KM_CENTS
+            distanceKm <= 20.0 -> DELIVERY_FEE_10_TO_20_KM_CENTS
+            distanceKm <= 30.0 -> DELIVERY_FEE_20_TO_30_KM_CENTS
+            else -> -1L // means "no delivery"
+        }
+    }
+
+    // ==== NOTIFICATIONS (from second file, heads-up style) ====
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
             val desc = "Order status and confirmations"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
+            // HIGH importance for heads-up notifications
+            val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
                 description = desc
+                enableLights(true)
+                lightColor = android.graphics.Color.GREEN
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 100, 200, 300)
+                setShowBadge(true)
             }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
@@ -515,21 +663,24 @@ class CartActivity : AppCompatActivity() {
             pendingFlags
         )
 
-        val title = getString(R.string.app_name)   // e.g. "Nastique"
+        val title = getString(R.string.app_name)
         val text = "Your order from $restaurantName has been placed."
 
         val builder = NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orders)
-            .setContentTitle(title)          // App name
-            .setContentText(text)            // Includes restaurant name
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setPriority(NotificationCompat.PRIORITY_HIGH) // heads-up
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 100, 200, 300))
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
 
         try {
             with(NotificationManagerCompat.from(this)) {
                 notify(orderId.hashCode(), builder.build())
             }
-        } catch (e: SecurityException) { }
+        } catch (e: SecurityException) {
+        }
     }
 }

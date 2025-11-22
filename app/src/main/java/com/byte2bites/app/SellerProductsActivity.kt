@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import com.byte2bites.app.databinding.ActivitySellerProductsBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
+import kotlin.math.*
 
 class SellerProductsActivity : AppCompatActivity() {
 
@@ -19,12 +20,19 @@ class SellerProductsActivity : AppCompatActivity() {
 
     private var sellerUid: String = ""
     private var sellerName: String? = null
-    private var deliveryFeeCents: Long = 0L
 
-    // NEW: for cart bar
+    // Buyer auth
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+
+    // Cart bar observer
     private var cartListener: ValueEventListener? = null
     private var cartDbRef: DatabaseReference? = null
+
+    // Same delivery fee brackets as CartActivity (in cents)
+    // Example values: change them to match your CartActivity constants
+    private val DELIVERY_FEE_0_TO_10_KM_CENTS = 1500L  // 15.00
+    private val DELIVERY_FEE_10_TO_20_KM_CENTS = 2500L // 25.00
+    private val DELIVERY_FEE_20_TO_30_KM_CENTS = 3500L // 35.00
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,7 +47,7 @@ class SellerProductsActivity : AppCompatActivity() {
         b.tvTitle.text = sellerName ?: "Restaurant"
 
         adapter = ProductAdapter(mutableListOf()) { product ->
-            // open product details
+            // Open product details
             val intent = Intent(this, ProductDetailsActivity::class.java).apply {
                 putExtra("productID", product.productID)
                 putExtra("name", product.name)
@@ -61,7 +69,7 @@ class SellerProductsActivity : AppCompatActivity() {
             startActivity(Intent(this, CartActivity::class.java))
         }
 
-        loadDeliveryFee()
+        loadDynamicDeliveryFee()
         loadProducts()
         observeCartBar()
     }
@@ -76,22 +84,80 @@ class SellerProductsActivity : AppCompatActivity() {
         }
     }
 
-    // === DELIVERY FEE & PRODUCTS ===
+    // ================== DYNAMIC DELIVERY FEE (distance-based) ==================
 
-    private fun loadDeliveryFee() {
-        if (sellerUid.isEmpty()) return
+    private fun loadDynamicDeliveryFee() {
+        if (sellerUid.isEmpty()) {
+            b.tvDeliveryFee.text = "Delivery: -"
+            return
+        }
 
-        db.reference.child("Sellers").child(sellerUid).child("deliveryInfo")
-            .get()
-            .addOnSuccessListener { snap ->
-                val feeStr = snap.getValue(String::class.java) ?: "0"
-                deliveryFeeCents = parsePrice(feeStr)
-                b.tvDeliveryFee.text = "Delivery fee: ${formatCurrency(deliveryFeeCents)}"
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            b.tvDeliveryFee.text = "Login to see delivery price"
+            return
+        }
+
+        val buyerRef = db.reference.child("Buyers").child(uid)
+
+        // 1) Load buyer address (with lat/lng)
+        buyerRef.child("address").get()
+            .addOnSuccessListener { addrSnap ->
+                val address = addrSnap.getValue(Address::class.java)
+                val buyerLat = address?.latitude
+                val buyerLng = address?.longitude
+
+                if (address == null) {
+                    b.tvDeliveryFee.text = "Add address to see delivery price"
+                    return@addOnSuccessListener
+                }
+
+                if (buyerLat == null || buyerLng == null) {
+                    b.tvDeliveryFee.text = "Choose location on map to see delivery price"
+                    return@addOnSuccessListener
+                }
+
+                // 2) Load seller location
+                db.reference.child("Sellers").child(sellerUid).get()
+                    .addOnSuccessListener { sellerSnap ->
+                        val sLatAny = sellerSnap.child("latitude").value
+                        val sLngAny = sellerSnap.child("longitude").value
+
+                        val sellerLat = sLatAny?.toString()?.toDoubleOrNull()
+                        val sellerLng = sLngAny?.toString()?.toDoubleOrNull()
+
+                        if (sellerLat == null || sellerLng == null) {
+                            b.tvDeliveryFee.text = "Delivery: seller location missing"
+                            return@addOnSuccessListener
+                        }
+
+                        // 3) Distance + fee
+                        val distKm = haversineKm(buyerLat, buyerLng, sellerLat, sellerLng)
+                        val deliveryFeeCents = calculateDeliveryFeeCents(distKm)
+
+                        when {
+                            deliveryFeeCents < 0L -> {
+                                b.tvDeliveryFee.text =
+                                    "Delivery not available to your address (> 30 km)"
+                            }
+                            else -> {
+                                // Show something like: "Delivery: $25.00 (7.3 km)"
+                                val feeText = formatCurrency(deliveryFeeCents)
+                                val distText = formatDistanceKm(distKm)
+                                b.tvDeliveryFee.text = "Delivery: $feeText ($distText)"
+                            }
+                        }
+                    }
+                    .addOnFailureListener {
+                        b.tvDeliveryFee.text = "Delivery: -"
+                    }
             }
             .addOnFailureListener {
-                b.tvDeliveryFee.text = "Delivery fee: -"
+                b.tvDeliveryFee.text = "Delivery: -"
             }
     }
+
+    // ================== PRODUCTS ==================
 
     private fun loadProducts() {
         if (sellerUid.isEmpty()) return
@@ -137,7 +203,7 @@ class SellerProductsActivity : AppCompatActivity() {
             })
     }
 
-    // === CART BAR (like Talabat "View cart") ===
+    // ================== CART BAR (View cart) ==================
 
     private fun observeCartBar() {
         val uid = auth.currentUser?.uid ?: run {
@@ -210,7 +276,7 @@ class SellerProductsActivity : AppCompatActivity() {
         b.tvCartSummary.text = formatCurrency(itemsTotalCents)
     }
 
-    // === PRICE HELPERS ===
+    // ================== HELPERS (price, distance, fee) ==================
 
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
@@ -228,4 +294,29 @@ class SellerProductsActivity : AppCompatActivity() {
 
     private fun totalCents(items: List<CartItem>): Long =
         items.sumOf { parsePrice(it.price) * it.quantity }
+
+    private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val R = 6371.0 // Earth radius in km
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = sin(dLat / 2).pow(2.0) +
+                cos(Math.toRadians(lat1)) *
+                cos(Math.toRadians(lat2)) *
+                sin(dLon / 2).pow(2.0)
+        val c = 2 * asin(sqrt(a))
+        return R * c
+    }
+
+    private fun calculateDeliveryFeeCents(distanceKm: Double): Long {
+        return when {
+            distanceKm <= 10.0 -> DELIVERY_FEE_0_TO_10_KM_CENTS
+            distanceKm <= 20.0 -> DELIVERY_FEE_10_TO_20_KM_CENTS
+            distanceKm <= 30.0 -> DELIVERY_FEE_20_TO_30_KM_CENTS
+            else -> -1L // means "no delivery"
+        }
+    }
+
+    private fun formatDistanceKm(distanceKm: Double): String {
+        return String.format("%.1f km", distanceKm)
+    }
 }

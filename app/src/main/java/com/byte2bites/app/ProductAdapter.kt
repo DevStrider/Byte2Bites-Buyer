@@ -13,8 +13,13 @@ class ProductAdapter(
 
     inner class VH(val b: ItemProductBinding) : RecyclerView.ViewHolder(b.root) {
         fun bind(p: Product) {
+            val ctx = b.root.context
+            val symbol = ctx.getString(R.string.currency_symbol)
+
             b.tvName.text = p.name ?: ""
-            b.tvPrice.text = p.price ?: ""
+
+            val priceText = p.price?.takeIf { it.isNotBlank() } ?: "0"
+            b.tvPrice.text = "$symbol$priceText"
 
             val url = p.imageUrl
             if (!url.isNullOrEmpty()) {

@@ -9,11 +9,14 @@ data class Order(
     val items: List<CartItem> = emptyList(),
     val deliveryFeeCents: Long = 0L,
     val deliveryType: String = "DELIVERY",
+
+    // THIS is what we will use now:
     val status: String = "WAITING_APPROVAL",
 
-    // NEW: VoIP info (per order, temporary)
+    // VoIP info
     val buyerIp: String? = null,
     val buyerPort: Int? = null,
     val sellerIp: String? = null,
     val sellerPort: Int? = null
 )
+

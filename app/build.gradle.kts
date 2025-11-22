@@ -1,8 +1,18 @@
+import java.util.Properties  // 👈 ADD THIS AT THE VERY TOP
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
     kotlin("kapt")
+}
+
+// 👇 NEW: read MAPS_API_KEY from local.properties
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        load(file.inputStream())
+    }
 }
 
 android {
@@ -17,6 +27,10 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 👇 This line creates @string/google_maps_key from MAPS_API_KEY
+        val mapsKey = localProps.getProperty("MAPS_API_KEY", "")
+        resValue("string", "google_maps_key", mapsKey)
     }
 
     buildFeatures {
@@ -73,4 +87,8 @@ dependencies {
 
     // Glide for image loading (will be useful for profile pictures)
     implementation("com.github.bumptech.glide:glide:4.16.0")
+
+    // Google Maps + Location
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("com.google.android.gms:play-services-location:21.0.1")
 }

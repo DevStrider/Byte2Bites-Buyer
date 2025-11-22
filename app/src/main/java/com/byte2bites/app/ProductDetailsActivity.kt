@@ -35,7 +35,8 @@ class ProductDetailsActivity : AppCompatActivity() {
 
         // Bind UI
         b.tvName.text = name
-        b.tvPrice.text = price
+        val symbol = getString(R.string.currency_symbol)
+        b.tvPrice.text = "$symbol${price ?: ""}"
         b.tvDescription.text = description
         Glide.with(this).load(imageUrl)
             .placeholder(R.drawable.ic_profile_placeholder)

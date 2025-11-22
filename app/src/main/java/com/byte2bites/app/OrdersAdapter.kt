@@ -36,25 +36,19 @@ class OrdersAdapter(
             0
         }
 
-        // Simple human-readable status for the card (matches previous logic)
-        val status = when {
-            ageSeconds < 20 -> "Accepted"
-            ageSeconds < 40 -> "Preparing"
-            ageSeconds < 60 -> "Delivering"
-            else -> "Order complete"
-        }
-
+        // Status text based on seller-provided status string
+        val statusText = mapStatusToText(order.status, order.deliveryType)
         b.tvOrderId.text = "Order #${order.orderId.takeLast(6)}"
-        b.tvStatus.text = status
+        b.tvStatus.text = statusText
 
-        // While active → relative time; when complete → show date+time
-        b.tvTime.text = if (status == "Order complete") {
+        // Final statuses: show exact date; otherwise relative "x min ago"
+        b.tvTime.text = if (isFinalStatus(order.status)) {
             formatDate(timestamp)
         } else {
             formatAge(ageSeconds)
         }
 
-        // Items summary, e.g. "2 × Burger\n1 × Fries"
+        // Items summary (2 × Burger\n1 × Fries)
         val itemsSummary = if (order.items.isNullOrEmpty()) {
             "No items"
         } else {
@@ -66,7 +60,7 @@ class OrdersAdapter(
         }
         b.tvItems.text = itemsSummary
 
-        // Total
+        // Total price
         b.tvTotal.text = "Total: ${formatCurrency(order.totalCents)}"
 
         // Call restaurant
@@ -81,6 +75,26 @@ class OrdersAdapter(
         items.clear()
         items.addAll(newItems)
         notifyDataSetChanged()
+    }
+
+    // ---- Helpers ----
+
+    private fun mapStatusToText(status: String?, deliveryType: String?): String {
+        return when (status) {
+            "WAITING_APPROVAL" -> "Waiting for seller approval"
+            "ACCEPTED" -> "Accepted"
+            "PREPARING" -> "Preparing"
+            "READY_FOR_PICKUP" -> "Ready for pickup"
+            "OUT_FOR_DELIVERY" ->
+                if (deliveryType == "PICKUP") "Ready for pickup" else "Out for delivery"
+            "DELIVERED" -> "Delivered"
+            "DENIED" -> "Order denied"
+            else -> status?.ifBlank { "Order placed" } ?: "Order placed"
+        }
+    }
+
+    private fun isFinalStatus(status: String?): Boolean {
+        return status == "DELIVERED" || status == "DENIED"
     }
 
     private fun formatAge(ageSeconds: Int): String =

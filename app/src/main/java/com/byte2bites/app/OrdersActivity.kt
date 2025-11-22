@@ -8,13 +8,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -34,30 +33,11 @@ class OrdersActivity : AppCompatActivity() {
     private val orders = mutableListOf<Order>()
 
     private val NOTIF_CHANNEL_ID = "orders_channel"
+    private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
-    // For status-change notifications (virtual status based on time)
+    // Cache last shown status text per order (for notifications)
     private val lastStatusMap = mutableMapOf<String, String>()
     private val sellerNameCache = mutableMapOf<String, String>()
-
-    // Handler for periodic status/time updates + notifications
-    private val uiHandler = Handler(Looper.getMainLooper())
-    private val refreshRunnable = object : Runnable {
-        override fun run() {
-            if (::adapter.isInitialized && orders.isNotEmpty()) {
-                for (order in orders) {
-                    val newStatus = computeStatusForOrder(order)
-                    val oldStatus = lastStatusMap[order.orderId]
-
-                    if (oldStatus != null && newStatus != oldStatus) {
-                        showStatusNotification(order, newStatus)
-                    }
-                    lastStatusMap[order.orderId] = newStatus
-                }
-                adapter.notifyDataSetChanged()
-            }
-            uiHandler.postDelayed(this, 1_000L) // every 1s
-        }
-    }
 
     // ==== Swipe support ====
     private lateinit var gestureDetector: GestureDetectorCompat
@@ -70,11 +50,12 @@ class OrdersActivity : AppCompatActivity() {
         setContentView(b.root)
 
         createNotificationChannel()
+        requestNotificationPermission()
 
-        // Gesture detector for swipe between screens
+        // Swipe detector (Orders <-> Home / Profile)
         gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
 
-        // Adapter with callback for "Call restaurant"
+        // RecyclerView + adapter (with call callback)
         adapter = OrdersAdapter(mutableListOf()) { order ->
             callRestaurant(order)
         }
@@ -84,13 +65,6 @@ class OrdersActivity : AppCompatActivity() {
         setupBottomNav()
         setupVoipButton()
         loadOrders()
-
-        uiHandler.post(refreshRunnable)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        uiHandler.removeCallbacks(refreshRunnable)
     }
 
     // === Swipe handling ===
@@ -120,41 +94,37 @@ class OrdersActivity : AppCompatActivity() {
         ): Boolean {
             if (e1 == null) return false
 
-            return try {
-                val diffX = e2.x - e1.x
-                val diffY = e2.y - e1.y
+            val diffX = e2.x - e1.x
+            val diffY = e2.y - e1.y
 
-                if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
-                    kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
-                    kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
-                ) {
-                    if (diffX > 0) {
-                        onSwipeRight()
-                    } else {
-                        onSwipeLeft()
-                    }
-                    true
+            if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
+                kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
+                kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
+            ) {
+                if (diffX > 0) {
+                    onSwipeRight()
                 } else {
-                    false
+                    onSwipeLeft()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                false
+                return true
             }
+            return false
         }
     }
 
     private fun onSwipeLeft() {
+        // Orders -> Profile
         startActivity(Intent(this, ProfileActivity::class.java))
         overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
     }
 
     private fun onSwipeRight() {
+        // Orders -> Home
         startActivity(Intent(this, HomeActivity::class.java))
         overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
     }
 
-    // ===== Bottom nav & VoIP button =====
+    // === Bottom nav + VoIP button ===
 
     private fun setupBottomNav() {
         b.navHome.setOnClickListener {
@@ -175,7 +145,24 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // ===== Load orders & virtual status map =====
+    // === Call restaurant from an order ===
+
+    private fun callRestaurant(order: Order) {
+        val sellerUid = order.items.firstOrNull()?.sellerUid
+
+        if (sellerUid.isNullOrEmpty()) {
+            Toast.makeText(this, "No seller info for this order.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        // We only pass the seller UID; IP and port are handled in VoipCallActivity.
+        val intent = Intent(this, VoipCallActivity::class.java).apply {
+            putExtra(VoipCallActivity.EXTRA_CALLEE_UID, sellerUid)
+        }
+        startActivity(intent)
+    }
+
+    // ===== Load orders & react to seller status =====
 
     private fun loadOrders() {
         val uid = auth.currentUser?.uid
@@ -195,12 +182,18 @@ class OrdersActivity : AppCompatActivity() {
                     list.add(order)
                     seenIds += order.orderId
 
-                    if (!lastStatusMap.containsKey(order.orderId)) {
-                        lastStatusMap[order.orderId] = computeStatusForOrder(order)
+                    // Status text based on seller-provided status string
+                    val statusText = computeStatusForOrder(order)
+
+                    // If status text changed -> show notification
+                    val oldStatus = lastStatusMap[order.orderId]
+                    if (oldStatus != null && oldStatus != statusText) {
+                        showStatusNotification(order, statusText)
                     }
+                    lastStatusMap[order.orderId] = statusText
                 }
 
-                // Clean status entries for orders that disappeared
+                // Remove deleted orders from cache
                 val it = lastStatusMap.keys.iterator()
                 while (it.hasNext()) {
                     val key = it.next()
@@ -223,51 +216,50 @@ class OrdersActivity : AppCompatActivity() {
         })
     }
 
-    // ===== CALL RESTAURANT (per order) =====
-
-    private fun callRestaurant(order: Order) {
-        val sellerUid = order.items.firstOrNull()?.sellerUid
-
-        if (sellerUid.isNullOrEmpty()) {
-            Toast.makeText(this, "No seller info for this order.", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        // We only pass the seller UID; IP and port are entered (or remembered) inside VoipCallActivity.
-        val intent = Intent(this, VoipCallActivity::class.java).apply {
-            putExtra(VoipCallActivity.EXTRA_CALLEE_UID, sellerUid)
-        }
-        startActivity(intent)
-    }
-
-    // ===== STATUS LOGIC (time-based flow) =====
-
+    // Map the raw status string from Firebase to a nice text
     private fun computeStatusForOrder(order: Order): String {
-        val now = System.currentTimeMillis()
-        val ageSeconds = ((now - order.timestamp) / 1000).toInt().coerceAtLeast(0)
+        val rawStatus = order.status
         val type = order.deliveryType
 
-        return when {
-            ageSeconds < 20 -> "Waiting for seller approval"
-            ageSeconds < 40 -> "Preparing"
-            ageSeconds < 60 ->
-                if (type == "PICKUP") "Ready for pickup" else "Delivering"
-            else -> "Delivered"
+        return when (rawStatus) {
+            "WAITING_APPROVAL" -> "Waiting for seller approval"
+            "ACCEPTED" -> "Accepted"
+            "PREPARING" -> "Preparing"
+            "READY_FOR_PICKUP" -> "Ready for pickup"
+            "OUT_FOR_DELIVERY" ->
+                if (type == "PICKUP") "Ready for pickup" else "Out for delivery"
+            "DELIVERED" -> "Delivered"
+            "DENIED" -> "Order denied"
+            else -> rawStatus.ifBlank { "Order placed" }
         }
     }
 
-    // ===== NOTIFICATION HELPERS =====
+    // ===== NOTIFICATION PERMISSION =====
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "Orders"
-            val desc = "Order status and confirmations"
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
-                description = desc
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_REQUEST_CODE
+                )
             }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.createNotificationChannel(channel)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == NOTIFICATION_PERMISSION_REQUEST_CODE) {
+            // nothing special to do – if granted, notifications will work
         }
     }
 
@@ -282,22 +274,44 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
+    // ===== NOTIFICATION HELPERS =====
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Orders"
+            val desc = "Order status and confirmations"
+            // HIGH importance for heads-up notifications
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
+                description = desc
+                enableLights(true)
+                lightColor = android.graphics.Color.GREEN
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 100, 200, 300)
+                setShowBadge(true)
+            }
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(channel)
+        }
+    }
+
     private fun showStatusNotification(order: Order, statusText: String) {
         if (!hasNotificationPermission()) return
 
-        val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
-
-        if (sellerUid.isEmpty()) {
+        val sellerUid = order.items.firstOrNull()?.sellerUid
+        if (sellerUid.isNullOrEmpty()) {
             sendStatusNotification("your restaurant", statusText, order.orderId)
             return
         }
 
+        // Cached seller name?
         val cached = sellerNameCache[sellerUid]
         if (cached != null) {
             sendStatusNotification(cached, statusText, order.orderId)
             return
         }
 
+        // Otherwise fetch seller name once and cache it
         db.reference.child("Sellers").child(sellerUid).child("name")
             .get()
             .addOnSuccessListener { snap ->
@@ -324,10 +338,11 @@ class OrdersActivity : AppCompatActivity() {
         }
 
         val pendingFlags =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            else
+            } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
+            }
 
         val pendingIntent = PendingIntent.getActivity(
             context,
@@ -339,6 +354,7 @@ class OrdersActivity : AppCompatActivity() {
         val title = getString(R.string.app_name)
         val text = "Order from $restaurantName: $statusText"
 
+        // unique per order+status combination
         val notificationKey = "$orderId-$statusText"
         val notificationId = notificationKey.hashCode()
 
@@ -346,14 +362,17 @@ class OrdersActivity : AppCompatActivity() {
             .setSmallIcon(R.drawable.ic_orders)
             .setContentTitle(title)
             .setContentText(text)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)   // heads-up
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
+            .setVibrate(longArrayOf(0, 100, 200, 300))
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
 
         try {
             with(NotificationManagerCompat.from(context)) {
                 notify(notificationId, builder.build())
             }
-        } catch (_: SecurityException) { }
+        } catch (_: SecurityException) {
+        }
     }
 }
