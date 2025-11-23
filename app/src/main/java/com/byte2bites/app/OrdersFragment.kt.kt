@@ -8,24 +8,25 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.view.GestureDetector
-import android.view.MotionEvent
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.core.view.GestureDetectorCompat
+import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityOrdersBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 
-class OrdersActivity : AppCompatActivity() {
+class OrdersFragment : Fragment() {
 
-    private lateinit var b: ActivityOrdersBinding
+    private var _b: ActivityOrdersBinding? = null
+    private val b get() = _b!!
+
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
     private val db: FirebaseDatabase by lazy { FirebaseDatabase.getInstance() }
 
@@ -42,93 +43,35 @@ class OrdersActivity : AppCompatActivity() {
     private val orderStatusListeners = mutableMapOf<String, ValueEventListener>()
     private val orderStatusRefs = mutableMapOf<String, DatabaseReference>()
 
-    // Swipe support
-    private lateinit var gestureDetector: GestureDetectorCompat
-    private val SWIPE_THRESHOLD = 100
-    private val SWIPE_VELOCITY_THRESHOLD = 100
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _b = ActivityOrdersBinding.inflate(inflater, container, false)
+        return b.root
+    }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        b = ActivityOrdersBinding.inflate(layoutInflater)
-        setContentView(b.root)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
         createNotificationChannel()
         requestNotificationPermission()
-
-        // Swipe detector (Orders <-> Home / Profile)
-        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
 
         // RecyclerView + adapter with call button
         adapter = OrdersAdapter(mutableListOf()) { order ->
             callRestaurant(order)
         }
-        b.rvOrders.layoutManager = LinearLayoutManager(this)
+        b.rvOrders.layoutManager = LinearLayoutManager(requireContext())
         b.rvOrders.adapter = adapter
 
-        setupBottomNav()
         setupVoipButton()
         loadOrders()
     }
 
-    // === Swipe handling ===
+    override fun onDestroyView() {
+        super.onDestroyView()
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        return if (gestureDetector.onTouchEvent(event)) {
-            true
-        } else {
-            super.onTouchEvent(event)
-        }
-    }
-
-    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-        ev?.let { gestureDetector.onTouchEvent(it) }
-        return super.dispatchTouchEvent(ev)
-    }
-
-    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
-
-        override fun onDown(e: MotionEvent): Boolean = true
-
-        override fun onFling(
-            e1: MotionEvent?,
-            e2: MotionEvent,
-            velocityX: Float,
-            velocityY: Float
-        ): Boolean {
-            if (e1 == null) return false
-
-            val diffX = e2.x - e1.x
-            val diffY = e2.y - e1.y
-
-            if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
-                kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
-                kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
-            ) {
-                if (diffX > 0) {
-                    onSwipeRight()
-                } else {
-                    onSwipeLeft()
-                }
-                return true
-            }
-            return false
-        }
-    }
-
-    private fun onSwipeLeft() {
-        // Orders -> Profile
-        startActivity(Intent(this, ProfileActivity::class.java))
-        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-    }
-
-    private fun onSwipeRight() {
-        // Orders -> Home
-        startActivity(Intent(this, HomeActivity::class.java))
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
         // Clean up Firebase listeners for seller order statuses
         orderStatusRefs.forEach { (orderId, ref) ->
             val listener = orderStatusListeners[orderId]
@@ -138,27 +81,8 @@ class OrdersActivity : AppCompatActivity() {
         }
         orderStatusListeners.clear()
         orderStatusRefs.clear()
-    }
 
-    // === Bottom nav + VoIP button ===
-
-    private fun setupBottomNav() {
-        b.navHome.setOnClickListener {
-            startActivity(Intent(this, HomeActivity::class.java))
-        }
-        b.navOrders.setOnClickListener {
-            // already here
-        }
-        b.navProfile.setOnClickListener {
-            startActivity(Intent(this, ProfileActivity::class.java))
-        }
-    }
-
-    private fun setupVoipButton() {
-        // Global VoIP button in toolbar/icon (manual call screen)
-        b.ivVoip.setOnClickListener {
-            startActivity(Intent(this, VoipCallActivity::class.java))
-        }
+        _b = null
     }
 
     // === Call restaurant from an order ===
@@ -167,15 +91,20 @@ class OrdersActivity : AppCompatActivity() {
         val sellerUid = order.items.firstOrNull()?.sellerUid
 
         if (sellerUid.isNullOrEmpty()) {
-            Toast.makeText(this, "No seller info for this order.", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "No seller info for this order.", Toast.LENGTH_LONG).show()
             return
         }
 
-        // We only pass the seller UID; IP and port are handled in VoipCallActivity.
-        val intent = Intent(this, VoipCallActivity::class.java).apply {
+        val intent = Intent(requireContext(), VoipCallActivity::class.java).apply {
             putExtra(VoipCallActivity.EXTRA_CALLEE_UID, sellerUid)
         }
         startActivity(intent)
+    }
+
+    private fun setupVoipButton() {
+        b.ivVoip.setOnClickListener {
+            startActivity(Intent(requireContext(), VoipCallActivity::class.java))
+        }
     }
 
     // ===== Load orders (buyer node) =====
@@ -183,7 +112,7 @@ class OrdersActivity : AppCompatActivity() {
     private fun loadOrders() {
         val uid = auth.currentUser?.uid
         if (uid == null) {
-            Toast.makeText(this, "Not logged in", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Not logged in", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -229,7 +158,7 @@ class OrdersActivity : AppCompatActivity() {
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Toast.makeText(this@OrdersActivity, error.message, Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), error.message, Toast.LENGTH_SHORT).show()
             }
         })
     }
@@ -258,7 +187,6 @@ class OrdersActivity : AppCompatActivity() {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val sellerStatus = snapshot.getValue(String::class.java) ?: return
-                // Sync to buyer node (with our new rule)
                 updateBuyerOrderStatus(buyerUid, orderId, sellerStatus)
             }
 
@@ -289,14 +217,10 @@ class OrdersActivity : AppCompatActivity() {
         buyerStatusRef.get().addOnSuccessListener { currentSnap ->
             val currentStatus = currentSnap.getValue(String::class.java) ?: ""
 
-            // 🔹 NEW RULE:
-            // If there's no status yet in buyer node AND seller is still WAITING_APPROVAL,
-            // do NOT create a status under buyer.
             if (currentStatus.isEmpty() && sellerStatus == "WAITING_APPROVAL") {
                 return@addOnSuccessListener
             }
 
-            // If status didn't change → nothing to do
             if (currentStatus == sellerStatus) {
                 return@addOnSuccessListener
             }
@@ -304,7 +228,6 @@ class OrdersActivity : AppCompatActivity() {
             buyerStatusRef.setValue(sellerStatus).addOnCompleteListener { task ->
                 if (!task.isSuccessful) return@addOnCompleteListener
 
-                // Find order in local list
                 val existing = orders.find { it.orderId == orderId }
                 val updatedOrder = existing?.copy(status = sellerStatus)
 
@@ -315,7 +238,7 @@ class OrdersActivity : AppCompatActivity() {
                     showStatusPopup(updatedOrder, statusText)
                 } else {
                     Toast.makeText(
-                        this,
+                        requireContext(),
                         "Order status updated: $statusText",
                         Toast.LENGTH_LONG
                     ).show()
@@ -323,8 +246,6 @@ class OrdersActivity : AppCompatActivity() {
             }
         }
     }
-
-    // === Friendly text for notifications/popups ===
 
     private fun getStatusText(status: String, deliveryType: String?): String {
         return when (status) {
@@ -340,8 +261,7 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // === Text shown in the orders list item ===
-
+    // Text for orders list if you use it in adapter
     private fun computeStatusForOrder(order: Order): String {
         val rawStatus = order.status
         val type = order.deliveryType
@@ -360,46 +280,42 @@ class OrdersActivity : AppCompatActivity() {
         }
     }
 
-    // === In-app popup (Toast) when status changes ===
-
     private fun showStatusPopup(order: Order, statusText: String) {
         val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
 
         if (sellerUid.isEmpty()) {
             Toast.makeText(
-                this,
+                requireContext(),
                 "Order status updated: $statusText",
                 Toast.LENGTH_LONG
             ).show()
             return
         }
 
-        // Cached seller name?
         val cached = sellerNameCache[sellerUid]
         if (cached != null) {
             Toast.makeText(
-                this,
+                requireContext(),
                 "Order from $cached: $statusText",
                 Toast.LENGTH_LONG
             ).show()
             return
         }
 
-        // Fetch restaurant name from DB
         db.reference.child("Sellers").child(sellerUid).child("name")
             .get()
             .addOnSuccessListener { snap ->
                 val restaurantName = snap.getValue(String::class.java) ?: "your restaurant"
                 sellerNameCache[sellerUid] = restaurantName
                 Toast.makeText(
-                    this,
+                    requireContext(),
                     "Order from $restaurantName: $statusText",
                     Toast.LENGTH_LONG
                 ).show()
             }
             .addOnFailureListener {
                 Toast.makeText(
-                    this,
+                    requireContext(),
                     "Order status updated: $statusText",
                     Toast.LENGTH_LONG
                 ).show()
@@ -412,7 +328,6 @@ class OrdersActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
             val desc = "Order status and confirmations"
-            // HIGH importance for heads-up notifications
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
                 description = desc
@@ -422,7 +337,7 @@ class OrdersActivity : AppCompatActivity() {
                 vibrationPattern = longArrayOf(0, 100, 200, 300)
                 setShowBadge(true)
             }
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val nm = requireContext().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
         }
     }
@@ -430,12 +345,11 @@ class OrdersActivity : AppCompatActivity() {
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
-                    this,
+                    requireContext(),
                     android.Manifest.permission.POST_NOTIFICATIONS
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                ActivityCompat.requestPermissions(
-                    this,
+                requestPermissions(
                     arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
                     NOTIFICATION_PERMISSION_REQUEST_CODE
                 )
@@ -449,13 +363,13 @@ class OrdersActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // no extra logic needed; if granted, notifications will work
+        // nothing extra; if granted, notifications will work
     }
 
     private fun hasNotificationPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
-                this,
+                requireContext(),
                 android.Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
         } else {
@@ -472,14 +386,12 @@ class OrdersActivity : AppCompatActivity() {
             return
         }
 
-        // Cached seller name?
         val cached = sellerNameCache[sellerUid]
         if (cached != null) {
             sendStatusNotification(cached, statusText, order.orderId)
             return
         }
 
-        // Otherwise fetch seller name once and cache it
         db.reference.child("Sellers").child(sellerUid).child("name")
             .get()
             .addOnSuccessListener { snap ->
@@ -499,10 +411,9 @@ class OrdersActivity : AppCompatActivity() {
     ) {
         if (!hasNotificationPermission()) return
 
-        val context = this
+        val context = requireContext()
 
-        // When user taps notification → open Orders screen
-        val intent = Intent(context, OrdersActivity::class.java).apply {
+        val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
@@ -529,7 +440,7 @@ class OrdersActivity : AppCompatActivity() {
             .setSmallIcon(R.drawable.ic_orders)
             .setContentTitle(title)
             .setContentText(text)
-            .setPriority(NotificationCompat.PRIORITY_HIGH) // heads-up
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setVibrate(longArrayOf(0, 100, 200, 300))

@@ -17,6 +17,9 @@ class ProductDetailsActivity : AppCompatActivity() {
     private lateinit var productItem: CartItem   // item we add/update in cart
     private var currentQuantity: Int = 0
 
+    // 🔹 Maximum quantity available in stock for this product
+    private var maxAvailableQuantity: Int = Int.MAX_VALUE
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityProductDetailsBinding.inflate(layoutInflater)
@@ -50,6 +53,9 @@ class ProductDetailsActivity : AppCompatActivity() {
             quantity = 1,
             sellerUid = sellerUid
         )
+
+        // Load stock for this product from Sellers/{sellerUid}/products/{productID}/quantity
+        loadAvailableQuantity()
 
         // Click listeners
         b.btnAddToCart.setOnClickListener { prepareAddToCart() }
@@ -106,6 +112,48 @@ class ProductDetailsActivity : AppCompatActivity() {
         }
     }
 
+    // === Load available stock from seller node ===
+
+    private fun loadAvailableQuantity() {
+        val sellerUid = productItem.sellerUid ?: return
+        val productId = productItem.productID
+        if (productId.isEmpty()) return
+
+        db.reference
+            .child("Sellers")
+            .child(sellerUid)
+            .child("products")
+            .child(productId)
+            .child("quantity")
+            .get()
+            .addOnSuccessListener { snap ->
+                val qtyStr = snap.getValue(String::class.java) ?: "0"
+                maxAvailableQuantity = qtyStr.toIntOrNull() ?: 0
+
+                if (maxAvailableQuantity <= 0) {
+                    Toast.makeText(
+                        this,
+                        "This product is currently out of stock",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
+                // If user already had a higher qty, clamp it down
+                if (currentQuantity > maxAvailableQuantity) {
+                    currentQuantity = maxAvailableQuantity.coerceAtLeast(0)
+                    if (currentQuantity == 0) {
+                        showAddButton()
+                    } else {
+                        showQuantityControls(currentQuantity)
+                    }
+                }
+            }
+            .addOnFailureListener {
+                // If we can't load it, treat as "no limit" to avoid blocking
+                maxAvailableQuantity = Int.MAX_VALUE
+            }
+    }
+
     // === Add first item (or handle cross-restaurant cart) ===
 
     /** Enforce single-restaurant cart with confirm dialog when switching */
@@ -120,6 +168,12 @@ class ProductDetailsActivity : AppCompatActivity() {
             return
         }
 
+        // 🔒 If out of stock, don't allow adding
+        if (maxAvailableQuantity <= 0) {
+            Toast.makeText(this, "This product is out of stock", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val buyerRef = db.reference.child("Buyers").child(uid)
         val cartRef = buyerRef.child("cart")
         val metaRef = buyerRef.child("cartMeta")
@@ -129,7 +183,7 @@ class ProductDetailsActivity : AppCompatActivity() {
 
             if (currentSeller.isNullOrEmpty() ||
                 currentSeller == productItem.sellerUid ||
-                productItem.sellerUid.isEmpty()
+                productItem.sellerUid.isNullOrEmpty()
             ) {
                 // same seller or empty cart → just add
                 addFirstItemToCart(cartRef, metaRef)
@@ -168,6 +222,17 @@ class ProductDetailsActivity : AppCompatActivity() {
         itemRef.get().addOnSuccessListener { snap ->
             val currentQty = snap.child("quantity").getValue(Int::class.java) ?: 0
             val newQty = currentQty + 1
+
+            // 🔒 Enforce stock limit
+            if (maxAvailableQuantity != Int.MAX_VALUE && newQty > maxAvailableQuantity) {
+                Toast.makeText(
+                    this,
+                    "Only $maxAvailableQuantity available in stock",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@addOnSuccessListener
+            }
+
             val newItem = productItem.copy(quantity = newQty)
             itemRef.setValue(newItem).addOnSuccessListener {
                 Toast.makeText(this, "Added to cart", Toast.LENGTH_SHORT).show()
@@ -186,6 +251,12 @@ class ProductDetailsActivity : AppCompatActivity() {
             return
         }
 
+        // 🔒 If out of stock, don't allow increment at all
+        if (maxAvailableQuantity <= 0) {
+            Toast.makeText(this, "This product is out of stock", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val itemRef = db.reference
             .child("Buyers")
             .child(uid)
@@ -195,6 +266,17 @@ class ProductDetailsActivity : AppCompatActivity() {
         itemRef.get().addOnSuccessListener { snap ->
             val currentQty = snap.child("quantity").getValue(Int::class.java) ?: 0
             val newQty = currentQty + 1
+
+            // 🔒 Enforce max available
+            if (maxAvailableQuantity != Int.MAX_VALUE && newQty > maxAvailableQuantity) {
+                Toast.makeText(
+                    this,
+                    "Only $maxAvailableQuantity available in stock",
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@addOnSuccessListener
+            }
+
             val newItem = productItem.copy(quantity = newQty)
             itemRef.setValue(newItem).addOnSuccessListener {
                 showQuantityControls(newQty)

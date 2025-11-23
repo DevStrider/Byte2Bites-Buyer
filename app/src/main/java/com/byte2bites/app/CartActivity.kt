@@ -6,7 +6,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.RadioButton
@@ -21,8 +20,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityCartBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
-import java.net.InetAddress
-import kotlin.math.*
+import kotlin.math.asin
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 class CartActivity : AppCompatActivity() {
 
@@ -230,13 +232,16 @@ class CartActivity : AppCompatActivity() {
     }
 
     // ===== CHECKOUT + ORDER CREATION =====
+    // (NO stock check – places order directly)
 
     private fun checkout() {
         val uid = auth.currentUser?.uid ?: run {
-            Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show(); return
+            Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show()
+            return
         }
         if (items.isEmpty()) {
-            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show(); return
+            Toast.makeText(this, "Cart is empty", Toast.LENGTH_SHORT).show()
+            return
         }
 
         val deliveryType = getSelectedDeliveryType() // "DELIVERY" or "PICKUP"
@@ -245,7 +250,8 @@ class CartActivity : AppCompatActivity() {
         val orderItems = items.toList()
         val sellerUids = orderItems.map { it.sellerUid }.distinct().filter { it.isNotEmpty() }
         if (sellerUids.size != 1) {
-            Toast.makeText(this, "Cart must contain items from one restaurant", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Cart must contain items from one restaurant", Toast.LENGTH_LONG)
+                .show()
             return
         }
         val sellerUidForCart = sellerUids.first()
@@ -261,10 +267,15 @@ class CartActivity : AppCompatActivity() {
                     Toast.makeText(this, "Please add your address first", Toast.LENGTH_LONG).show()
                     startActivity(Intent(this, AddressActivity::class.java))
                 } else if (buyerLat == null || buyerLng == null) {
-                    Toast.makeText(this, "Please pick your location on the map for delivery", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Please pick your location on the map for delivery",
+                        Toast.LENGTH_LONG
+                    ).show()
                     startActivity(Intent(this, AddressActivity::class.java))
                 } else {
-                    verifyStockAndPlaceOrder(
+                    // Directly place order (no stock check)
+                    placeOrder(
                         uid = uid,
                         buyerRef = buyerRef,
                         orderItems = orderItems,
@@ -274,13 +285,14 @@ class CartActivity : AppCompatActivity() {
                     )
                 }
             }.addOnFailureListener { e ->
-                Toast.makeText(this, "Failed to load address: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Failed to load address: ${e.message}", Toast.LENGTH_LONG)
+                    .show()
             }
         } else {
             // PICKUP: address optional
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java) // can be null
-                verifyStockAndPlaceOrder(
+                placeOrder(
                     uid = uid,
                     buyerRef = buyerRef,
                     orderItems = orderItems,
@@ -289,7 +301,7 @@ class CartActivity : AppCompatActivity() {
                     address = addr
                 )
             }.addOnFailureListener {
-                verifyStockAndPlaceOrder(
+                placeOrder(
                     uid = uid,
                     buyerRef = buyerRef,
                     orderItems = orderItems,
@@ -298,63 +310,6 @@ class CartActivity : AppCompatActivity() {
                     address = null
                 )
             }
-        }
-    }
-
-    /**
-     * Check quantities against latest inventory in DB.
-     * If OK -> creates order.
-     */
-    private fun verifyStockAndPlaceOrder(
-        uid: String,
-        buyerRef: DatabaseReference,
-        orderItems: List<CartItem>,
-        sellerUidForCart: String,
-        deliveryType: String,
-        address: Address?
-    ) {
-        val rootRef = db.reference
-
-        rootRef.child("Sellers").get().addOnSuccessListener { sellersSnap ->
-            val outOfStockItems = mutableListOf<String>()
-
-            for (item in orderItems) {
-                val productNode = sellersSnap
-                    .child(item.sellerUid)
-                    .child("products")
-                    .child(item.productID)
-
-                val qtyStr = productNode.child("quantity").getValue(String::class.java) ?: "0"
-                val available = qtyStr.toIntOrNull() ?: 0
-
-                if (item.quantity > available) {
-                    outOfStockItems += "${item.name} (only $available left)"
-                }
-            }
-
-            if (outOfStockItems.isNotEmpty()) {
-                AlertDialog.Builder(this)
-                    .setTitle("Not enough stock")
-                    .setMessage(
-                        "Some items are not available in the requested quantity:\n\n" +
-                                outOfStockItems.joinToString("\n") +
-                                "\n\nPlease update your cart."
-                    )
-                    .setPositiveButton("OK", null)
-                    .show()
-                return@addOnSuccessListener
-            }
-
-            placeOrder(
-                uid = uid,
-                buyerRef = buyerRef,
-                orderItems = orderItems,
-                sellerUidForCart = sellerUidForCart,
-                deliveryType = deliveryType,
-                address = address
-            )
-        }.addOnFailureListener { e ->
-            Toast.makeText(this, "Failed to check stock: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -371,9 +326,6 @@ class CartActivity : AppCompatActivity() {
         val ts = System.currentTimeMillis()
         val orderId = rootRef.push().key ?: ts.toString()
 
-        val buyerIp = getLocalIpAddress()
-        val buyerPort = 5000 // your fixed VoIP port
-
         if (deliveryType == "PICKUP") {
             // PICKUP: no delivery fee
             val deliveryFeeCents = 0L
@@ -388,9 +340,7 @@ class CartActivity : AppCompatActivity() {
                 "timestamp" to ts,
                 "items" to orderItems,
                 "deliveryFeeCents" to deliveryFeeCents,
-                "deliveryType" to deliveryType,
-                "buyerIp" to buyerIp,
-                "buyerPort" to buyerPort
+                "deliveryType" to deliveryType
                 // intentionally NO "status"
             )
 
@@ -411,8 +361,6 @@ class CartActivity : AppCompatActivity() {
                     updates["$sellerBase/deliveryFeeCents"] = 0L
                     updates["$sellerBase/deliveryType"] = deliveryType
                     updates["$sellerBase/status"] = "WAITING_APPROVAL"
-                    updates["$sellerBase/buyerIp"] = buyerIp
-                    updates["$sellerBase/buyerPort"] = buyerPort
                 }
             }
 
@@ -437,7 +385,8 @@ class CartActivity : AppCompatActivity() {
             val buyerLng = address?.longitude
 
             if (buyerLat == null || buyerLng == null) {
-                Toast.makeText(this, "Address location missing for delivery", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Address location missing for delivery", Toast.LENGTH_LONG)
+                    .show()
                 return
             }
 
@@ -451,7 +400,11 @@ class CartActivity : AppCompatActivity() {
                     val sellerLng = sLngAny?.toString()?.toDoubleOrNull()
 
                     if (sellerLat == null || sellerLng == null) {
-                        Toast.makeText(this, "Seller location not configured for delivery", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            this,
+                            "Seller location not configured for delivery",
+                            Toast.LENGTH_LONG
+                        ).show()
                         return@addOnSuccessListener
                     }
 
@@ -478,10 +431,8 @@ class CartActivity : AppCompatActivity() {
                         "timestamp" to ts,
                         "items" to orderItems,
                         "deliveryFeeCents" to deliveryFeeCents,
-                        "deliveryType" to deliveryType,
-                        "buyerIp" to buyerIp,
-                        "buyerPort" to buyerPort
-                        // intentionally NO "status"
+                        "deliveryType" to deliveryType
+                        // NO "status"
                     )
 
                     val updates = hashMapOf<String, Any?>()
@@ -503,8 +454,6 @@ class CartActivity : AppCompatActivity() {
                                 if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
                             updates["$sellerBase/deliveryType"] = deliveryType
                             updates["$sellerBase/status"] = "WAITING_APPROVAL"
-                            updates["$sellerBase/buyerIp"] = buyerIp
-                            updates["$sellerBase/buyerPort"] = buyerPort
                         }
                     }
 
@@ -525,26 +474,12 @@ class CartActivity : AppCompatActivity() {
                     }
                 }
                 .addOnFailureListener { e ->
-                    Toast.makeText(this, "Failed to load seller location: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Failed to load seller location: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
-        }
-    }
-
-    // === IP helper ===
-    private fun getLocalIpAddress(): String? {
-        return try {
-            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ipInt = wm.connectionInfo.ipAddress
-            InetAddress.getByAddress(
-                byteArrayOf(
-                    (ipInt and 0xff).toByte(),
-                    (ipInt shr 8 and 0xff).toByte(),
-                    (ipInt shr 16 and 0xff).toByte(),
-                    (ipInt shr 24 and 0xff).toByte()
-                )
-            ).hostAddress
-        } catch (e: Exception) {
-            null
         }
     }
 
@@ -602,7 +537,6 @@ class CartActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
             val desc = "Order status and confirmations"
-            // HIGH importance for heads-up notifications
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(NOTIF_CHANNEL_ID, name, importance).apply {
                 description = desc
@@ -646,9 +580,10 @@ class CartActivity : AppCompatActivity() {
     private fun sendOrderPlacedNotification(orderId: String, restaurantName: String) {
         if (!hasNotificationPermission()) return
 
-        // When user taps → open Orders screen
-        val intent = Intent(this, OrdersActivity::class.java).apply {
+        // When user taps → open Orders tab in MainActivity
+        val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to", "orders")
         }
 
         val pendingFlags =
@@ -681,6 +616,7 @@ class CartActivity : AppCompatActivity() {
             with(NotificationManagerCompat.from(this)) {
                 notify(orderId.hashCode(), builder.build())
             }
-        } catch (e: SecurityException) { }
+        } catch (e: SecurityException) {
+        }
     }
 }

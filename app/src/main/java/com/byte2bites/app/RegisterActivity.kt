@@ -61,8 +61,14 @@ class RegisterActivity : AppCompatActivity() {
                         database.reference.child("Buyers").child(uid).setValue(user)
                             .addOnCompleteListener { dbTask ->
                                 if (dbTask.isSuccessful) {
-                                    Toast.makeText(this, "Registration successful!", Toast.LENGTH_SHORT).show()
-                                    val intent = Intent(this, HomeActivity::class.java)
+                                    Toast.makeText(
+                                        this,
+                                        "Registration successful!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
+                                    // ✅ Go to MainActivity after successful registration
+                                    val intent = Intent(this, MainActivity::class.java)
                                     intent.flags =
                                         Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                     startActivity(intent)

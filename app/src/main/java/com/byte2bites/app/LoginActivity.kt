@@ -67,7 +67,9 @@ class LoginActivity : AppCompatActivity() {
                             if (dataSnapshot.exists()) {
                                 Toast.makeText(this, "Login successful!", Toast.LENGTH_SHORT)
                                     .show()
-                                val intent = Intent(this, HomeActivity::class.java)
+
+                                // ✅ Go to MainActivity (which hosts Home/Orders/Profile fragments)
+                                val intent = Intent(this, MainActivity::class.java)
                                 intent.flags =
                                     Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                 startActivity(intent)

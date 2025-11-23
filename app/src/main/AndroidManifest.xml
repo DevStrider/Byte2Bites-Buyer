@@ -11,7 +11,6 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -23,11 +22,12 @@
         android:theme="@style/Theme.Byte2Bites"
         tools:targetApi="31">
 
+        <!-- Google Maps API key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="@string/google_maps_key" />
 
-        <!-- Launcher -->
+        <!-- Launcher: Welcome / Auth entry -->
         <activity
             android:name=".WelcomeActivity"
             android:exported="true"
@@ -37,6 +37,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Main host activity (ViewPager2 + bottom nav with Home/Orders/Profile fragments) -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <!-- Auth screens -->
         <activity
@@ -51,9 +56,6 @@
 
         <!-- Profile / settings -->
         <activity
-            android:name=".ProfileActivity"
-            android:exported="false" />
-        <activity
             android:name=".ChangeUserInfoActivity"
             android:exported="false" />
         <activity
@@ -61,11 +63,6 @@
             android:exported="false" />
         <activity
             android:name=".ChangePasswordActivity"
-            android:exported="false" />
-
-        <!-- Buyer home (list of sellers / restaurants) -->
-        <activity
-            android:name=".HomeActivity"
             android:exported="false" />
 
         <!-- Seller's products (buyer browsing one shop) -->
@@ -83,18 +80,15 @@
             android:name=".CartActivity"
             android:exported="false" />
 
-        <!-- Orders list -->
-        <activity
-            android:name=".OrdersActivity"
-            android:exported="false" />
-
         <!-- VoIP signaling screen -->
         <activity
             android:name=".VoipCallActivity"
             android:exported="false" />
 
+        <!-- Location picker for address -->
         <activity
             android:name=".LocationPickerActivity"
             android:exported="false" />
+
     </application>
 </manifest>

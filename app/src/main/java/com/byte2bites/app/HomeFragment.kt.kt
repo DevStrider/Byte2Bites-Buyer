@@ -2,121 +2,66 @@ package com.byte2bites.app
 
 import android.content.Intent
 import android.os.Bundle
-import android.view.GestureDetector
-import android.view.MotionEvent
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.GestureDetectorCompat
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import androidx.core.widget.addTextChangedListener
+import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.byte2bites.app.databinding.ActivityHomeBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 
-class HomeActivity : AppCompatActivity() {
+class HomeFragment : Fragment() {
 
-    private lateinit var b: ActivityHomeBinding
+    private var _b: ActivityHomeBinding? = null
+    private val b get() = _b!!
+
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseDatabase
-    private lateinit var gestureDetector: GestureDetectorCompat
 
     private lateinit var adapter: SellerAdapter
     private val sellers = mutableListOf<Seller>()
 
-    // Swipe sensitivity
-    private val SWIPE_THRESHOLD = 100
-    private val SWIPE_VELOCITY_THRESHOLD = 100
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _b = ActivityHomeBinding.inflate(inflater, container, false)
+        return b.root
+    }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        b = ActivityHomeBinding.inflate(layoutInflater)
-        setContentView(b.root)
-
-        supportActionBar?.hide()
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
         auth = FirebaseAuth.getInstance()
         db = FirebaseDatabase.getInstance()
 
-        // Gesture detector for swipe between screens
-        gestureDetector = GestureDetectorCompat(this, SwipeGestureListener())
-
-        // Restaurants / shops list
         adapter = SellerAdapter(mutableListOf()) { seller ->
-            startActivity(Intent(this, SellerProductsActivity::class.java).apply {
-                putExtra("sellerUid", seller.uid)
-                putExtra("sellerName", seller.name)
-            })
+            startActivity(
+                Intent(requireContext(), SellerProductsActivity::class.java).apply {
+                    putExtra("sellerUid", seller.uid)
+                    putExtra("sellerName", seller.name)
+                }
+            )
         }
-        b.rvProducts.layoutManager = LinearLayoutManager(this)
+        b.rvProducts.layoutManager = LinearLayoutManager(requireContext())
         b.rvProducts.adapter = adapter
 
-        // Cart icon in header
         b.ivCart.setOnClickListener {
-            startActivity(Intent(this, CartActivity::class.java))
+            startActivity(Intent(requireContext(), CartActivity::class.java))
         }
 
-        setupBottomNav()
         setupSearch()
-
         loadUserGreeting()
         loadSellers()
     }
 
-    // === Swipe handling ===
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        return if (gestureDetector.onTouchEvent(event)) {
-            true
-        } else {
-            super.onTouchEvent(event)
-        }
-    }
-
-    override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
-        ev?.let { gestureDetector.onTouchEvent(it) }
-        return super.dispatchTouchEvent(ev)
-    }
-
-    private inner class SwipeGestureListener : GestureDetector.SimpleOnGestureListener() {
-
-        override fun onDown(e: MotionEvent): Boolean = true
-
-        override fun onFling(
-            e1: MotionEvent?,
-            e2: MotionEvent,
-            velocityX: Float,
-            velocityY: Float
-        ): Boolean {
-            if (e1 == null) return false
-
-            val diffX = e2.x - e1.x
-            val diffY = e2.y - e1.y
-
-            if (kotlin.math.abs(diffX) > kotlin.math.abs(diffY) &&
-                kotlin.math.abs(diffX) > SWIPE_THRESHOLD &&
-                kotlin.math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD
-            ) {
-                if (diffX > 0) {
-                    onSwipeRight()
-                } else {
-                    onSwipeLeft()
-                }
-                return true
-            }
-            return false
-        }
-    }
-
-    private fun onSwipeLeft() {
-        // Home -> Orders
-        startActivity(Intent(this, OrdersActivity::class.java))
-        overridePendingTransition(R.anim.slide_in_right, R.anim.slide_out_left)
-    }
-
-    private fun onSwipeRight() {
-        // Home -> Profile
-        startActivity(Intent(this, ProfileActivity::class.java))
-        overridePendingTransition(R.anim.slide_in_left, R.anim.slide_out_right)
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _b = null
     }
 
     // === Top: Welcome Name ===
@@ -163,7 +108,7 @@ class HomeActivity : AppCompatActivity() {
     private fun loadSellers() {
         val user = auth.currentUser
         if (user == null) {
-            Toast.makeText(this, "Not logged in", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Not logged in", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -197,7 +142,7 @@ class HomeActivity : AppCompatActivity() {
 
                     if (sellers.isEmpty()) {
                         Toast.makeText(
-                            this@HomeActivity,
+                            requireContext(),
                             "No restaurants found.",
                             Toast.LENGTH_SHORT
                         ).show()
@@ -206,24 +151,11 @@ class HomeActivity : AppCompatActivity() {
 
                 override fun onCancelled(error: DatabaseError) {
                     Toast.makeText(
-                        this@HomeActivity,
+                        requireContext(),
                         "Failed to load restaurants: ${error.message}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
             })
-    }
-
-    // === Bottom nav ===
-
-    private fun setupBottomNav() {
-        b.navHome.setOnClickListener {
-        }
-        b.navOrders.setOnClickListener {
-            startActivity(Intent(this, OrdersActivity::class.java))
-        }
-        b.navProfile.setOnClickListener {
-            startActivity(Intent(this, ProfileActivity::class.java))
-        }
     }
 }

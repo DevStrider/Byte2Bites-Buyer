@@ -22,10 +22,13 @@ class WelcomeActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
-        // If already logged in, go straight to Home
+        // If already logged in, go straight to MainActivity (Home/Orders/Profile host)
         val currentUser = auth.currentUser
         if (currentUser != null) {
-            startActivity(Intent(this, HomeActivity::class.java))
+            val intent = Intent(this, MainActivity::class.java)
+            intent.flags =
+                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
             finish()
             return
         }
