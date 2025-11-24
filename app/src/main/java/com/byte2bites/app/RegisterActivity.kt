@@ -57,7 +57,14 @@ class RegisterActivity : AppCompatActivity() {
                     val uid = firebaseUser?.uid
 
                     if (uid != null) {
-                        val user = User(fullName, email, phoneNumber)
+                        // Initialize user with 0 points and 0 credit
+                        val user = User(
+                            fullName = fullName,
+                            email = email,
+                            phoneNumber = phoneNumber,
+                            points = 0,
+                            credit = 0
+                        )
                         database.reference.child("Buyers").child(uid).setValue(user)
                             .addOnCompleteListener { dbTask ->
                                 if (dbTask.isSuccessful) {

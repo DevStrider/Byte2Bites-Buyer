@@ -55,7 +55,7 @@
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="16dp"
         android:layout_marginTop="8dp"
-        app:cardCornerRadius="16dp"
+        app:cardCornerRadius="12dp"
         app:cardElevation="2dp"
         app:cardBackgroundColor="@color/bb_surface"
         app:layout_constraintTop_toBottomOf="@id/topBar"
@@ -65,7 +65,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="12dp"
+            android:padding="16dp"
             android:orientation="vertical">
 
             <TextView
@@ -103,6 +103,71 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- Payment Method Section -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardPaymentMethod"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="16dp"
+        android:layout_marginTop="8dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="2dp"
+        app:cardBackgroundColor="@color/bb_surface"
+        app:layout_constraintTop_toBottomOf="@id/cardDeliveryType"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Payment Method"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="@color/text_primary_dark"
+                android:layout_marginBottom="8dp" />
+
+            <TextView
+                android:id="@+id/tvAvailableCredit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Available Credit: $0.00"
+                android:textSize="14sp"
+                android:textColor="@color/bb_primary_blue"
+                android:layout_marginBottom="12dp" />
+
+            <RadioGroup
+                android:id="@+id/rgPaymentMethod"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/rbCash"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Cash"
+                    android:checked="true"
+                    android:textColor="@color/text_primary_dark" />
+
+                <RadioButton
+                    android:id="@+id/rbCredit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Use App Credit"
+                    android:textColor="@color/text_primary_dark" />
+
+            </RadioGroup>
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
     <!-- Cart items list -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvCart"
@@ -112,12 +177,12 @@
         android:paddingHorizontal="16dp"
         android:paddingTop="8dp"
         android:paddingBottom="8dp"
-        app:layout_constraintTop_toBottomOf="@id/cardDeliveryType"
+        app:layout_constraintTop_toBottomOf="@id/cardPaymentMethod"
         app:layout_constraintBottom_toTopOf="@id/bottomBar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Bottom total + checkout (new design) -->
+    <!-- Bottom total + checkout -->
     <LinearLayout
         android:id="@+id/bottomBar"
         android:layout_width="0dp"
@@ -125,8 +190,9 @@
         android:orientation="vertical"
         android:background="@color/bb_surface"
         android:paddingHorizontal="16dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="16dp"
+        android:elevation="8dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -145,7 +211,7 @@
                 android:layout_weight="1"
                 android:text="Subtotal"
                 android:textColor="@color/text_secondary_dark"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
             <TextView
                 android:id="@+id/tvSubtotal"
@@ -153,7 +219,7 @@
                 android:layout_height="wrap_content"
                 android:text="$0.00"
                 android:textColor="@color/text_primary_dark"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
         </LinearLayout>
 
         <!-- Delivery row -->
@@ -171,7 +237,7 @@
                 android:layout_weight="1"
                 android:text="Delivery"
                 android:textColor="@color/text_secondary_dark"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
 
             <TextView
                 android:id="@+id/tvDeliveryFee"
@@ -179,15 +245,15 @@
                 android:layout_height="wrap_content"
                 android:text="--"
                 android:textColor="@color/text_primary_dark"
-                android:textSize="13sp" />
+                android:textSize="14sp" />
         </LinearLayout>
 
         <!-- Divider -->
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="6dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
             android:background="#1F000000" />
 
         <!-- Total row -->
@@ -204,7 +270,7 @@
                 android:layout_weight="1"
                 android:text="Total"
                 android:textColor="@color/text_primary_dark"
-                android:textSize="15sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -213,7 +279,7 @@
                 android:layout_height="wrap_content"
                 android:text="$0.00"
                 android:textColor="@color/bb_primary_blue"
-                android:textSize="15sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
@@ -222,7 +288,7 @@
             android:id="@+id/btnCheckout"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="12dp"
             android:text="Place order"
             android:textAllCaps="false"
             android:textSize="16sp"

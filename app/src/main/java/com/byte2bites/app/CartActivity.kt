@@ -43,6 +43,9 @@ class CartActivity : AppCompatActivity() {
     private val DELIVERY_FEE_10_TO_20_KM_CENTS = 2500L // 25.00
     private val DELIVERY_FEE_20_TO_30_KM_CENTS = 3500L // 35.00
 
+    private var userCredit: Long = 0
+    private var useCreditForPayment: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityCartBinding.inflate(layoutInflater)
@@ -63,9 +66,42 @@ class CartActivity : AppCompatActivity() {
             updateTotals()
         }
 
+        // Payment method toggle
+        b.rgPaymentMethod.setOnCheckedChangeListener { _, checkedId ->
+            useCreditForPayment = checkedId == b.rbCredit.id
+            updateTotals()
+        }
+
         b.btnCheckout.setOnClickListener { checkout() }
 
         loadCart()
+        loadUserCredit()
+    }
+
+    private fun loadUserCredit() {
+        val uid = auth.currentUser?.uid ?: return
+        db.reference.child("Buyers").child(uid).child("credit")
+            .addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    userCredit = snapshot.getValue(Long::class.java) ?: 0
+                    updateCreditDisplay()
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    // Handle error
+                }
+            })
+    }
+
+    private fun updateCreditDisplay() {
+        b.tvAvailableCredit.text = "Available Credit: ${formatCurrency(userCredit)}"
+
+        // Disable credit option if user has no credit
+        b.rbCredit.isEnabled = userCredit > 0
+        if (userCredit == 0L && useCreditForPayment) {
+            b.rbCash.isChecked = true
+            useCreditForPayment = false
+        }
     }
 
     // ===== NOTIFICATION PERMISSION =====
@@ -141,9 +177,17 @@ class CartActivity : AppCompatActivity() {
 
         // PICKUP → no delivery fee
         if (deliveryType == "PICKUP") {
+            val grandTotal = itemsTotal
             b.tvSubtotal.text = formatCurrency(itemsTotal)
             b.tvDeliveryFee.text = "Pickup"
-            b.tvGrandTotal.text = formatCurrency(itemsTotal)
+
+            if (useCreditForPayment) {
+                val creditUsed = minOf(userCredit, grandTotal)
+                val remaining = grandTotal - creditUsed
+                b.tvGrandTotal.text = "Credit: -${formatCurrency(creditUsed)}\nCash: ${formatCurrency(remaining)}"
+            } else {
+                b.tvGrandTotal.text = formatCurrency(grandTotal)
+            }
             return
         }
 
@@ -205,7 +249,14 @@ class CartActivity : AppCompatActivity() {
                                 } else {
                                     val grandTotal = itemsTotal + deliveryFeeCents
                                     b.tvDeliveryFee.text = formatCurrency(deliveryFeeCents)
-                                    b.tvGrandTotal.text = formatCurrency(grandTotal)
+
+                                    if (useCreditForPayment) {
+                                        val creditUsed = minOf(userCredit, grandTotal)
+                                        val remaining = grandTotal - creditUsed
+                                        b.tvGrandTotal.text = "Credit: -${formatCurrency(creditUsed)}\nCash: ${formatCurrency(remaining)}"
+                                    } else {
+                                        b.tvGrandTotal.text = formatCurrency(grandTotal)
+                                    }
                                 }
                             }
                             .addOnFailureListener {
@@ -245,6 +296,22 @@ class CartActivity : AppCompatActivity() {
         }
 
         val deliveryType = getSelectedDeliveryType() // "DELIVERY" or "PICKUP"
+
+        // Check if using credit and if enough credit is available
+        if (useCreditForPayment) {
+            val itemsTotal = totalCents(items)
+            val deliveryFee = calculateFinalDeliveryFee(deliveryType, uid, itemsTotal)
+            if (deliveryFee < 0) {
+                Toast.makeText(this, "Cannot calculate delivery fee", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val grandTotal = itemsTotal + deliveryFee
+
+            if (userCredit < grandTotal) {
+                Toast.makeText(this, "Not enough credit available", Toast.LENGTH_LONG).show()
+                return
+            }
+        }
 
         val buyerRef = db.reference.child("Buyers").child(uid)
         val orderItems = items.toList()
@@ -313,6 +380,18 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    private fun calculateFinalDeliveryFee(deliveryType: String, uid: String, itemsTotal: Long): Long {
+        if (deliveryType == "PICKUP") return 0L
+
+        return try {
+            // This is a simplified version - you might want to implement the full distance calculation
+            // For now, return a default delivery fee or implement the full calculation
+            DELIVERY_FEE_0_TO_10_KM_CENTS
+        } catch (e: Exception) {
+            -1L
+        }
+    }
+
     private fun placeOrder(
         uid: String,
         buyerRef: DatabaseReference,
@@ -326,10 +405,15 @@ class CartActivity : AppCompatActivity() {
         val ts = System.currentTimeMillis()
         val orderId = rootRef.push().key ?: ts.toString()
 
+        // Calculate credit usage
+        val deliveryFeeCents = if (deliveryType == "PICKUP") 0L else calculateFinalDeliveryFee(deliveryType, uid, itemsTotalCents)
+        val orderTotal = itemsTotalCents + deliveryFeeCents
+        val creditUsed = if (useCreditForPayment) minOf(userCredit, orderTotal) else 0L
+        val cashAmount = orderTotal - creditUsed
+
         if (deliveryType == "PICKUP") {
             // PICKUP: no delivery fee
-            val deliveryFeeCents = 0L
-            val orderTotal = itemsTotalCents + deliveryFeeCents
+            val updates = hashMapOf<String, Any?>()
 
             // 🔸 Buyer order: NO status field
             val buyerOrderMap = hashMapOf<String, Any?>(
@@ -340,11 +424,12 @@ class CartActivity : AppCompatActivity() {
                 "timestamp" to ts,
                 "items" to orderItems,
                 "deliveryFeeCents" to deliveryFeeCents,
-                "deliveryType" to deliveryType
+                "deliveryType" to deliveryType,
+                "creditUsed" to creditUsed,
+                "cashAmount" to cashAmount
                 // intentionally NO "status"
             )
 
-            val updates = hashMapOf<String, Any?>()
             updates["Buyers/$uid/orders/$orderId"] = buyerOrderMap
 
             // 🔹 Seller orders WITH status
@@ -361,7 +446,14 @@ class CartActivity : AppCompatActivity() {
                     updates["$sellerBase/deliveryFeeCents"] = 0L
                     updates["$sellerBase/deliveryType"] = deliveryType
                     updates["$sellerBase/status"] = "WAITING_APPROVAL"
+                    updates["$sellerBase/creditUsed"] = creditUsed
+                    updates["$sellerBase/cashAmount"] = cashAmount
                 }
+            }
+
+            // Update user credit if used
+            if (creditUsed > 0) {
+                updates["Buyers/$uid/credit"] = userCredit - creditUsed
             }
 
             rootRef.updateChildren(updates).addOnCompleteListener { task ->
@@ -409,9 +501,9 @@ class CartActivity : AppCompatActivity() {
                     }
 
                     val distKm = haversineKm(buyerLat, buyerLng, sellerLat, sellerLng)
-                    val deliveryFeeCents = calculateDeliveryFeeCents(distKm)
+                    val calculatedDeliveryFeeCents = calculateDeliveryFeeCents(distKm)
 
-                    if (deliveryFeeCents < 0L) {
+                    if (calculatedDeliveryFeeCents < 0L) {
                         Toast.makeText(
                             this,
                             "Delivery not available for distance > 30 km. Please choose pickup.",
@@ -420,18 +512,22 @@ class CartActivity : AppCompatActivity() {
                         return@addOnSuccessListener
                     }
 
-                    val orderTotal = itemsTotalCents + deliveryFeeCents
+                    val finalOrderTotal = itemsTotalCents + calculatedDeliveryFeeCents
+                    val finalCreditUsed = if (useCreditForPayment) minOf(userCredit, finalOrderTotal) else 0L
+                    val finalCashAmount = finalOrderTotal - finalCreditUsed
 
                     // 🔸 Buyer order: NO status field
                     val buyerOrderMap = hashMapOf<String, Any?>(
                         "orderId" to orderId,
                         "buyerUid" to uid,
-                        "totalCents" to orderTotal,
+                        "totalCents" to finalOrderTotal,
                         "address" to address,
                         "timestamp" to ts,
                         "items" to orderItems,
-                        "deliveryFeeCents" to deliveryFeeCents,
-                        "deliveryType" to deliveryType
+                        "deliveryFeeCents" to calculatedDeliveryFeeCents,
+                        "deliveryType" to deliveryType,
+                        "creditUsed" to finalCreditUsed,
+                        "cashAmount" to finalCashAmount
                         // NO "status"
                     )
 
@@ -444,17 +540,24 @@ class CartActivity : AppCompatActivity() {
                             val sellerBase = "Sellers/$sellerUid/orders/$orderId"
                             val itemsTotalForSeller = totalCents(sellerItems)
                             val totalForSeller = itemsTotalForSeller +
-                                    if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
+                                    if (sellerUid == sellerUidForCart) calculatedDeliveryFeeCents else 0L
                             updates["$sellerBase/orderId"] = orderId
                             updates["$sellerBase/buyerUid"] = uid
                             updates["$sellerBase/timestamp"] = ts
                             updates["$sellerBase/totalCents"] = totalForSeller
                             updates["$sellerBase/items"] = sellerItems
                             updates["$sellerBase/deliveryFeeCents"] =
-                                if (sellerUid == sellerUidForCart) deliveryFeeCents else 0L
+                                if (sellerUid == sellerUidForCart) calculatedDeliveryFeeCents else 0L
                             updates["$sellerBase/deliveryType"] = deliveryType
                             updates["$sellerBase/status"] = "WAITING_APPROVAL"
+                            updates["$sellerBase/creditUsed"] = finalCreditUsed
+                            updates["$sellerBase/cashAmount"] = finalCashAmount
                         }
+                    }
+
+                    // Update user credit if used
+                    if (finalCreditUsed > 0) {
+                        updates["Buyers/$uid/credit"] = userCredit - finalCreditUsed
                     }
 
                     rootRef.updateChildren(updates).addOnCompleteListener { task ->

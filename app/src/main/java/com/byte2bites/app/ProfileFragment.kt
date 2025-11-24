@@ -24,7 +24,6 @@ import com.bumptech.glide.Glide
 import com.byte2bites.app.databinding.ActivityProfileBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
-
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -97,6 +96,11 @@ class ProfileFragment : Fragment() {
         binding.cardChangePassword.setOnClickListener {
             startActivity(Intent(requireContext(), ChangePasswordActivity::class.java))
         }
+
+        // Add points to credit conversion
+        binding.cardConvertPoints.setOnClickListener {
+            showConvertPointsDialog()
+        }
     }
 
     override fun onDestroyView() {
@@ -141,6 +145,12 @@ class ProfileFragment : Fragment() {
                     binding.tvUserName.text = userProfile?.fullName
                     binding.tvUserEmail.text = userProfile?.email
 
+                    // Display points and credit - FIXED: Convert to String
+                    val points = userProfile?.points ?: 0
+                    val credit = userProfile?.credit ?: 0
+                    binding.tvPoints.text = "Points: $points"
+                    binding.tvCredit.text = "Credit: ${formatCurrency(credit)}"
+
                     if (!userProfile?.photoUrl.isNullOrEmpty()) {
                         Glide.with(this@ProfileFragment)
                             .load(userProfile?.photoUrl)
@@ -160,6 +170,129 @@ class ProfileFragment : Fragment() {
                 ).show()
             }
         })
+    }
+
+    private fun showConvertPointsDialog() {
+        val user = auth.currentUser ?: return
+        val userRef = database.reference.child("Buyers").child(user.uid)
+
+        userRef.get().addOnSuccessListener { snapshot ->
+            val userProfile = snapshot.getValue(User::class.java)
+            val availablePoints = userProfile?.points ?: 0
+
+            if (availablePoints < 5) {
+                Toast.makeText(
+                    requireContext(),
+                    "You need at least 5 points to convert to credit",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@addOnSuccessListener
+            }
+
+            val maxConvertiblePoints = availablePoints
+            val maxCredit = maxConvertiblePoints / 5 * 100 // 5 points = 1$ = 100 cents
+
+            val dialogView = layoutInflater.inflate(R.layout.dialog_convert_points, null)
+            val dialog = AlertDialog.Builder(requireContext())
+                .setTitle("Convert Points to Credit")
+                .setView(dialogView)
+                .setPositiveButton("Convert") { dialog, _ ->
+                    val pointsToConvert = dialogView.findViewById<android.widget.EditText>(R.id.etPointsToConvert).text.toString().toLongOrNull() ?: 0L
+                    convertPointsToCredit(pointsToConvert)
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .create()
+
+            dialog.show()
+
+            // Set up the dialog views
+            val tvAvailablePoints = dialogView.findViewById<android.widget.TextView>(R.id.tvAvailablePoints)
+            val tvCreditAmount = dialogView.findViewById<android.widget.TextView>(R.id.tvCreditAmount)
+            val etPointsToConvert = dialogView.findViewById<android.widget.EditText>(R.id.etPointsToConvert)
+            val seekBar = dialogView.findViewById<android.widget.SeekBar>(R.id.seekBarPoints)
+
+            tvAvailablePoints.text = "Available Points: $availablePoints"
+
+            seekBar.max = maxConvertiblePoints.toInt()
+            seekBar.progress = 0
+
+            seekBar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    val points = (progress / 5) * 5 // Only multiples of 5
+                    etPointsToConvert.setText(points.toString())
+                    val credit = (points / 5) * 100 // 5 points = 100 cents (1$)
+                    tvCreditAmount.text = "Credit: ${formatCurrency(credit.toLong())}"
+                }
+
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            })
+
+            etPointsToConvert.setOnEditorActionListener { _, _, _ ->
+                val points = etPointsToConvert.text.toString().toLongOrNull() ?: 0L
+                val validPoints = (points.coerceIn(0, maxConvertiblePoints) / 5) * 5
+                etPointsToConvert.setText(validPoints.toString())
+                seekBar.progress = validPoints.toInt()
+                false
+            }
+        }
+    }
+
+    private fun convertPointsToCredit(pointsToConvert: Long) {
+        if (pointsToConvert < 5) {
+            Toast.makeText(requireContext(), "Minimum 5 points required", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (pointsToConvert % 5 != 0L) {
+            Toast.makeText(requireContext(), "Points must be multiples of 5", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val user = auth.currentUser ?: return
+        val userRef = database.reference.child("Buyers").child(user.uid)
+
+        userRef.get().addOnSuccessListener { snapshot ->
+            val userProfile = snapshot.getValue(User::class.java)
+            val availablePoints = userProfile?.points ?: 0
+
+            if (pointsToConvert > availablePoints) {
+                Toast.makeText(requireContext(), "Not enough points", Toast.LENGTH_LONG).show()
+                return@addOnSuccessListener
+            }
+
+            val creditToAdd = (pointsToConvert / 5) * 100 // 5 points = 100 cents (1$)
+            val newPoints = availablePoints - pointsToConvert
+            val newCredit = (userProfile?.credit ?: 0) + creditToAdd
+
+            val updates = mapOf(
+                "points" to newPoints,
+                "credit" to newCredit
+            )
+
+            userRef.updateChildren(updates).addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    Toast.makeText(
+                        requireContext(),
+                        "Converted $pointsToConvert points to ${formatCurrency(creditToAdd)} credit",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        requireContext(),
+                        "Conversion failed: ${task.exception?.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun formatCurrency(cents: Long): String {
+        val dollars = cents / 100
+        val remainingCents = cents % 100
+        return "$$dollars.${remainingCents.toString().padStart(2, '0')}"
     }
 
     private fun uploadImageToS3() {
