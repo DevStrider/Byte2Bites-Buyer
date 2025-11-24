@@ -88,7 +88,7 @@ class CartActivity : AppCompatActivity() {
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    // Handle error
+                    // Handle error if needed
                 }
             })
     }
@@ -184,7 +184,8 @@ class CartActivity : AppCompatActivity() {
             if (useCreditForPayment) {
                 val creditUsed = minOf(userCredit, grandTotal)
                 val remaining = grandTotal - creditUsed
-                b.tvGrandTotal.text = "Credit: -${formatCurrency(creditUsed)}\nCash: ${formatCurrency(remaining)}"
+                b.tvGrandTotal.text =
+                    "Credit: -${formatCurrency(creditUsed)}\nCash: ${formatCurrency(remaining)}"
             } else {
                 b.tvGrandTotal.text = formatCurrency(grandTotal)
             }
@@ -253,7 +254,12 @@ class CartActivity : AppCompatActivity() {
                                     if (useCreditForPayment) {
                                         val creditUsed = minOf(userCredit, grandTotal)
                                         val remaining = grandTotal - creditUsed
-                                        b.tvGrandTotal.text = "Credit: -${formatCurrency(creditUsed)}\nCash: ${formatCurrency(remaining)}"
+                                        b.tvGrandTotal.text =
+                                            "Credit: -${formatCurrency(creditUsed)}\nCash: ${
+                                                formatCurrency(
+                                                    remaining
+                                                )
+                                            }"
                                     } else {
                                         b.tvGrandTotal.text = formatCurrency(grandTotal)
                                     }
@@ -276,10 +282,83 @@ class CartActivity : AppCompatActivity() {
     private fun inc(item: CartItem) = setQty(item, item.quantity + 1)
     private fun dec(item: CartItem) = setQty(item, (item.quantity - 1).coerceAtLeast(0))
 
+    /**
+     * NEW VERSION: checks seller stock safely before increasing.
+     * No crashes if quantity in DB is String / Int / Long / missing.
+     */
     private fun setQty(item: CartItem, q: Int) {
         val uid = auth.currentUser?.uid ?: return
-        val ref = db.reference.child("Buyers").child(uid).child("cart").child(item.productID)
-        if (q == 0) ref.removeValue() else ref.child("quantity").setValue(q)
+        val cartItemRef =
+            db.reference.child("Buyers").child(uid).child("cart").child(item.productID)
+
+        // Remove if zero or negative
+        if (q <= 0) {
+            cartItemRef.removeValue()
+            return
+        }
+
+        // If we're decreasing or keeping the same → no need to check stock
+        if (q <= item.quantity) {
+            cartItemRef.child("quantity").setValue(q)
+            return
+        }
+
+        // We're increasing → check seller stock first (like Product Details)
+        val sellerUid = item.sellerUid
+        if (sellerUid.isBlank()) {
+            // Fallback: if no seller info, just set (or you can show an error instead)
+            cartItemRef.child("quantity").setValue(q)
+            return
+        }
+
+        val productQtyRef = db.reference
+            .child("Sellers")
+            .child(sellerUid)
+            .child("products")
+            .child(item.productID)
+            .child("quantity")
+
+        productQtyRef.get()
+            .addOnSuccessListener { snap ->
+                try {
+                    // SAFE PARSE: works whether quantity is Int, Long or String
+                    val stock = snap.value?.toString()?.toIntOrNull() ?: 0
+
+                    if (stock <= 0) {
+                        Toast.makeText(
+                            this@CartActivity,
+                            "This item is currently out of stock.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return@addOnSuccessListener
+                    }
+
+                    if (q > stock) {
+                        Toast.makeText(
+                            this@CartActivity,
+                            "Only $stock available from this restaurant.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return@addOnSuccessListener
+                    }
+
+                    // Within stock limits → update quantity in cart
+                    cartItemRef.child("quantity").setValue(q)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this@CartActivity,
+                        "Error checking stock, please try again.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(
+                    this@CartActivity,
+                    "Couldn't check stock, please try again.",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
     }
 
     // ===== CHECKOUT + ORDER CREATION =====
@@ -384,8 +463,7 @@ class CartActivity : AppCompatActivity() {
         if (deliveryType == "PICKUP") return 0L
 
         return try {
-            // This is a simplified version - you might want to implement the full distance calculation
-            // For now, return a default delivery fee or implement the full calculation
+            // Simplified – you can plug in the full distance logic if needed.
             DELIVERY_FEE_0_TO_10_KM_CENTS
         } catch (e: Exception) {
             -1L
@@ -406,7 +484,12 @@ class CartActivity : AppCompatActivity() {
         val orderId = rootRef.push().key ?: ts.toString()
 
         // Calculate credit usage
-        val deliveryFeeCents = if (deliveryType == "PICKUP") 0L else calculateFinalDeliveryFee(deliveryType, uid, itemsTotalCents)
+        val deliveryFeeCents =
+            if (deliveryType == "PICKUP") 0L else calculateFinalDeliveryFee(
+                deliveryType,
+                uid,
+                itemsTotalCents
+            )
         val orderTotal = itemsTotalCents + deliveryFeeCents
         val creditUsed = if (useCreditForPayment) minOf(userCredit, orderTotal) else 0L
         val cashAmount = orderTotal - creditUsed
@@ -513,7 +596,8 @@ class CartActivity : AppCompatActivity() {
                     }
 
                     val finalOrderTotal = itemsTotalCents + calculatedDeliveryFeeCents
-                    val finalCreditUsed = if (useCreditForPayment) minOf(userCredit, finalOrderTotal) else 0L
+                    val finalCreditUsed =
+                        if (useCreditForPayment) minOf(userCredit, finalOrderTotal) else 0L
                     val finalCashAmount = finalOrderTotal - finalCreditUsed
 
                     // 🔸 Buyer order: NO status field
@@ -539,8 +623,8 @@ class CartActivity : AppCompatActivity() {
                         if (!sellerUid.isNullOrEmpty()) {
                             val sellerBase = "Sellers/$sellerUid/orders/$orderId"
                             val itemsTotalForSeller = totalCents(sellerItems)
-                            val totalForSeller = itemsTotalForSeller +
-                                    if (sellerUid == sellerUidForCart) calculatedDeliveryFeeCents else 0L
+                            val totalForSeller =
+                                itemsTotalForSeller + if (sellerUid == sellerUidForCart) calculatedDeliveryFeeCents else 0L
                             updates["$sellerBase/orderId"] = orderId
                             updates["$sellerBase/buyerUid"] = uid
                             updates["$sellerBase/timestamp"] = ts
@@ -720,6 +804,7 @@ class CartActivity : AppCompatActivity() {
                 notify(orderId.hashCode(), builder.build())
             }
         } catch (e: SecurityException) {
+            // Ignore if permission missing
         }
     }
 }
