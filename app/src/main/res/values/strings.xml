@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">Byte2Bites</string>
-    <string name="currency_symbol">$</string> <!--E£-->
+    <string name="currency_symbol">E£</string> <!--$-->
 </resources>

@@ -1,5 +1,6 @@
 package com.byte2bites.app
 
+import android.content.Context
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
@@ -60,8 +61,8 @@ class OrdersAdapter(
         }
         b.tvItems.text = itemsSummary
 
-        // Total price
-        b.tvTotal.text = "Total: ${formatCurrency(order.totalCents)}"
+        // ✅ Total price using currency_symbol (E£)
+        b.tvTotal.text = "Total: ${formatCurrency(holder.itemView.context, order.totalCents)}"
 
         // Call restaurant
         b.btnCallRestaurant.setOnClickListener {
@@ -110,9 +111,11 @@ class OrdersAdapter(
         return sdf.format(Date(timestamp))
     }
 
-    private fun formatCurrency(cents: Long): String {
+    // ✅ Uses <string name="currency_symbol">E£</string>
+    private fun formatCurrency(context: Context, cents: Long): String {
+        val symbol = context.getString(R.string.currency_symbol)
         val whole = cents / 100
         val frac = (cents % 100).toString().padStart(2, '0')
-        return "$$whole.$frac"
+        return "$symbol$whole.$frac"
     }
 }
