@@ -2,9 +2,8 @@ package com.byte2bites.app
 
 import android.content.Intent
 import android.os.Bundle
-import android.widget.ImageView
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.viewpager2.widget.ViewPager2
 import com.byte2bites.app.databinding.ActivityMainBinding
 
@@ -17,30 +16,42 @@ class MainActivity : AppCompatActivity() {
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        supportActionBar?.hide()
-
         setupViewPager()
         setupBottomNav()
 
-        // Handle navigation from notification
-        handleNavigationIntent()
+        // Default tab when app opens normally
+        if (savedInstanceState == null) {
+            selectTab(0) // Home
+        }
+
+        // Handle navigation when launched from a notification
+        handleNavigationIntent(intent)
     }
 
-    private fun handleNavigationIntent() {
-        val navigateTo = intent.getStringExtra("navigate_to")
-        if (navigateTo == "orders") {
-            // Navigate to Orders tab (position 1)
-            b.viewPager.setCurrentItem(1, false)
-            updateBottomNav(1)
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            handleNavigationIntent(intent)
         }
     }
 
+    // =========== Navigation from notification ===========
+
+    private fun handleNavigationIntent(intent: Intent) {
+        when (intent.getStringExtra("navigate_to")) {
+            "orders" -> selectTab(1)
+            "profile" -> selectTab(2)
+            "home" -> selectTab(0)
+        }
+    }
+
+    // =========== ViewPager2 setup ===========
+
     private fun setupViewPager() {
-        val adapter = MainPagerAdapter(this)
-        b.viewPager.adapter = adapter
-        b.viewPager.offscreenPageLimit = 2
-        b.viewPager.orientation = ViewPager2.ORIENTATION_HORIZONTAL
-        b.viewPager.isUserInputEnabled = false // Prevent swiping if needed
+        val pagerAdapter = MainPagerAdapter(this)
+        b.viewPager.adapter = pagerAdapter
+        b.viewPager.isUserInputEnabled = true   // enable swiping
 
         // When user swipes, update bottom nav highlight
         b.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
@@ -51,52 +62,47 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    // =========== Custom bottom nav (LinearLayout) ===========
+
     private fun setupBottomNav() {
-        b.navHome.setOnClickListener {
-            b.viewPager.setCurrentItem(0, true)
-        }
-        b.navOrders.setOnClickListener {
-            b.viewPager.setCurrentItem(1, true)
-        }
-        b.navProfile.setOnClickListener {
-            b.viewPager.setCurrentItem(2, true)
-        }
-
-        // Default tab = Home
-        updateBottomNav(0)
+        b.navHome.setOnClickListener { selectTab(0) }
+        b.navOrders.setOnClickListener { selectTab(1) }
+        b.navProfile.setOnClickListener { selectTab(2) }
     }
 
-    private fun updateBottomNav(position: Int) {
-        val primary = getColor(R.color.bb_primary_blue)
-        val secondary = getColor(R.color.text_secondary_dark)
+    private fun selectTab(index: Int) {
+        b.viewPager.currentItem = index
+        updateBottomNav(index)
+    }
 
-        fun setTab(selected: Boolean, icon: ImageView, label: TextView) {
-            val color = if (selected) primary else secondary
-            icon.setColorFilter(color)
-            label.setTextColor(color)
+    private fun updateBottomNav(selectedIndex: Int) {
+        val activeColor = ContextCompat.getColor(this, R.color.bb_primary_blue)
+        val inactiveColor = ContextCompat.getColor(this, R.color.text_secondary_dark)
+
+        fun setTab(active: Boolean,
+                   iconView: android.widget.ImageView,
+                   labelView: android.widget.TextView) {
+            val color = if (active) activeColor else inactiveColor
+            iconView.setColorFilter(color)
+            labelView.setTextColor(color)
         }
 
         setTab(
-            position == 0,
-            b.navHomeIcon,
-            b.navHomeLabel
+            active = selectedIndex == 0,
+            iconView = b.navHomeIcon,
+            labelView = b.navHomeLabel
         )
-        setTab(
-            position == 1,
-            b.navOrdersIcon,
-            b.navOrdersLabel
-        )
-        setTab(
-            position == 2,
-            b.navProfileIcon,
-            b.navProfileLabel
-        )
-    }
 
-    // Handle new intents when app is already running
-    override fun onNewIntent(intent: Intent?) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleNavigationIntent()
+        setTab(
+            active = selectedIndex == 1,
+            iconView = b.navOrdersIcon,
+            labelView = b.navOrdersLabel
+        )
+
+        setTab(
+            active = selectedIndex == 2,
+            iconView = b.navProfileIcon,
+            labelView = b.navProfileLabel
+        )
     }
 }
