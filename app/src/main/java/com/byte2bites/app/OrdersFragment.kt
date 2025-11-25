@@ -35,7 +35,7 @@ class OrdersFragment : Fragment() {
     private val NOTIF_CHANNEL_ID = "orders_channel"
     private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
-    // Cache seller names so we don't hit DB every time
+    // Cache seller names
     private val sellerNameCache = mutableMapOf<String, String>()
 
     // For syncing seller status -> buyer node
@@ -57,7 +57,6 @@ class OrdersFragment : Fragment() {
         createNotificationChannel()
         requestNotificationPermission()
 
-        // RecyclerView + adapter with call button
         adapter = OrdersAdapter(mutableListOf()) { order ->
             callRestaurant(order)
         }
@@ -71,15 +70,15 @@ class OrdersFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
 
-        // Clean up Firebase listeners for seller order statuses
+        // Clean up status listeners
         orderStatusRefs.forEach { (orderId, ref) ->
             val listener = orderStatusListeners[orderId]
             if (listener != null) {
                 ref.removeEventListener(listener)
             }
         }
-        orderStatusListeners.clear()
         orderStatusRefs.clear()
+        orderStatusListeners.clear()
 
         _b = null
     }
@@ -90,7 +89,8 @@ class OrdersFragment : Fragment() {
         val sellerUid = order.items.firstOrNull()?.sellerUid
 
         if (sellerUid.isNullOrEmpty()) {
-            Toast.makeText(requireContext(), "No seller info for this order.", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "No seller info for this order.", Toast.LENGTH_LONG)
+                .show()
             return
         }
 
@@ -126,7 +126,7 @@ class OrdersFragment : Fragment() {
                     list.add(order)
                     seenIds += order.orderId
 
-                    // Set up sync from seller -> buyer status for this order
+                    // Sync status from seller → buyer
                     setupOrderStatusSyncListener(uid, order)
                 }
 
@@ -145,7 +145,7 @@ class OrdersFragment : Fragment() {
                     }
                 }
 
-                // Newest orders first
+                // Newest first
                 list.sortByDescending { it.timestamp }
 
                 orders.clear()
@@ -170,7 +170,6 @@ class OrdersFragment : Fragment() {
     private fun setupOrderStatusSyncListener(buyerUid: String, order: Order) {
         val orderId = order.orderId
 
-        // Already listening for this order
         if (orderStatusListeners.containsKey(orderId)) return
 
         val sellerUid = order.items.firstOrNull()?.sellerUid ?: return
@@ -199,12 +198,6 @@ class OrdersFragment : Fragment() {
         orderStatusRefs[orderId] = sellerOrderRef
     }
 
-    /**
-     * Update the status in buyer's node to match seller's node, BUT:
-     * - If buyer has no status AND sellerStatus == "WAITING_APPROVAL"
-     *   → DO NOT write a status for the buyer (keep it "empty" initially).
-     * - For later changes (ACCEPTED, PREPARING, etc.) → sync & notify.
-     */
     private fun updateBuyerOrderStatus(buyerUid: String, orderId: String, sellerStatus: String) {
         val buyerStatusRef = db.reference
             .child("Buyers")
@@ -257,25 +250,6 @@ class OrdersFragment : Fragment() {
             "DELIVERED", "COMPLETED" -> "has been delivered"
             "DENIED" -> "has been denied"
             else -> "status updated: $status"
-        }
-    }
-
-    // Text for orders list if you use it in adapter
-    private fun computeStatusForOrder(order: Order): String {
-        val rawStatus = order.status
-        val type = order.deliveryType
-
-        return when (rawStatus) {
-            "WAITING_APPROVAL" -> "Waiting for seller approval"
-            "ACCEPTED" -> "Accepted"
-            "PREPARING" -> "Preparing"
-            "READY_FOR_PICKUP", "READY" -> "Ready for pickup"
-            "OUT_FOR_DELIVERY" ->
-                if (type == "PICKUP") "Ready for pickup" else "Out for delivery"
-            "DELIVERED", "COMPLETED" -> "Delivered"
-            "DENIED" -> "Order denied"
-            null, "" -> "Order placed"
-            else -> rawStatus
         }
     }
 
@@ -336,7 +310,8 @@ class OrdersFragment : Fragment() {
                 vibrationPattern = longArrayOf(0, 100, 200, 300)
                 setShowBadge(true)
             }
-            val nm = requireContext().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val nm =
+                requireContext().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
         }
     }
@@ -362,7 +337,6 @@ class OrdersFragment : Fragment() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // nothing extra; if granted, notifications will work
     }
 
     private fun hasNotificationPermission(): Boolean {
@@ -414,6 +388,7 @@ class OrdersFragment : Fragment() {
 
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to", "orders")   // 👈 IMPORTANT: go to Orders tab
         }
 
         val pendingFlags =

@@ -1,5 +1,6 @@
 package com.byte2bites.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.ImageView
 import android.widget.TextView
@@ -20,6 +21,18 @@ class MainActivity : AppCompatActivity() {
 
         setupViewPager()
         setupBottomNav()
+
+        // Handle navigation from notification
+        handleNavigationIntent()
+    }
+
+    private fun handleNavigationIntent() {
+        val navigateTo = intent.getStringExtra("navigate_to")
+        if (navigateTo == "orders") {
+            // Navigate to Orders tab (position 1)
+            b.viewPager.setCurrentItem(1, false)
+            updateBottomNav(1)
+        }
     }
 
     private fun setupViewPager() {
@@ -27,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         b.viewPager.adapter = adapter
         b.viewPager.offscreenPageLimit = 2
         b.viewPager.orientation = ViewPager2.ORIENTATION_HORIZONTAL
+        b.viewPager.isUserInputEnabled = false // Prevent swiping if needed
 
         // When user swipes, update bottom nav highlight
         b.viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
@@ -77,5 +91,12 @@ class MainActivity : AppCompatActivity() {
             b.navProfileIcon,
             b.navProfileLabel
         )
+    }
+
+    // Handle new intents when app is already running
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavigationIntent()
     }
 }
