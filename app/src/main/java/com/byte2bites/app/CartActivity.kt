@@ -26,6 +26,24 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+/**
+ * Activity that displays the buyer's current cart and handles checkout.
+ *
+ * Responsibilities:
+ * - Show cart items with quantity controls.
+ * - Compute:
+ *   - Subtotal (items total in cents),
+ *   - Distance-based delivery fee,
+ *   - Final grand total.
+ * - Let user choose:
+ *   - Delivery vs Pickup,
+ *   - Cash vs Wallet credit as payment method.
+ * - Enforce:
+ *   - Single-restaurant cart,
+ *   - Quantity not exceeding available stock,
+ *   - Delivery radius (<= 30 km).
+ * - Create orders under Buyers and Sellers nodes and send notifications.
+ */
 class CartActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityCartBinding
@@ -43,7 +61,9 @@ class CartActivity : AppCompatActivity() {
     private val DELIVERY_FEE_10_TO_20_KM_CENTS = 2500L // 25.00
     private val DELIVERY_FEE_20_TO_30_KM_CENTS = 3500L // 35.00
 
+    // Buyer wallet credit (cents) loaded from Firebase.
     private var userCredit: Long = 0
+    // Whether the user selected "Wallet Credit" as the payment method.
     private var useCreditForPayment: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,25 +77,33 @@ class CartActivity : AppCompatActivity() {
         // Back arrow
         b.ivBack.setOnClickListener { finish() }
 
+        // Setup RecyclerView for cart items.
         adapter = CartAdapter(mutableListOf(), ::inc, ::dec)
         b.rvCart.layoutManager = LinearLayoutManager(this)
         b.rvCart.adapter = adapter
 
+        // Delivery type radio group (Delivery vs Pickup).
         b.rgDeliveryType.setOnCheckedChangeListener { _, _ ->
             updateTotals()
         }
 
+        // Payment method radio group (Cash vs Credit).
         b.rgPaymentMethod.setOnCheckedChangeListener { _, checkedId ->
             useCreditForPayment = checkedId == b.rbCredit.id
             updateTotals()
         }
 
+        // Checkout button triggers order creation workflow.
         b.btnCheckout.setOnClickListener { checkout() }
 
         loadCart()
         loadUserCredit()
     }
 
+    /**
+     * Subscribes to the buyer credit field under /Buyers/{uid}/credit
+     * and updates the payment options UI.
+     */
     private fun loadUserCredit() {
         val uid = auth.currentUser?.uid ?: return
         db.reference.child("Buyers").child(uid).child("credit")
@@ -90,6 +118,10 @@ class CartActivity : AppCompatActivity() {
             })
     }
 
+    /**
+     * Updates the "Available Credit" text and enables/disables the radio button.
+     * Automatically switches to cash if credit becomes zero while it is selected.
+     */
     private fun updateCreditDisplay() {
         b.tvAvailableCredit.text = "Available Credit: ${formatCurrency(userCredit)}"
 
@@ -102,6 +134,10 @@ class CartActivity : AppCompatActivity() {
 
     // ===== NOTIFICATION PERMISSION =====
 
+    /**
+     * Requests POST_NOTIFICATIONS permission (Android 13+) so we can show
+     * local notifications when an order is placed.
+     */
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -124,10 +160,15 @@ class CartActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // For this screen, we don't need to react to the result immediately.
     }
 
     // ===== CART LOADING + TOTALS =====
 
+    /**
+     * Subscribes to /Buyers/{uid}/cart to reflect changes in the cart UI.
+     * Only items with quantity > 0 are displayed.
+     */
     private fun loadCart() {
         val uid = auth.currentUser?.uid ?: return
         db.reference.child("Buyers").child(uid).child("cart")
@@ -150,6 +191,13 @@ class CartActivity : AppCompatActivity() {
             })
     }
 
+    /**
+     * Recalculates subtotal, delivery fee, and grand total.
+     * Also handles:
+     * - Pickup vs Delivery logic,
+     * - Missing address,
+     * - Payment using wallet credit.
+     */
     private fun updateTotals() {
         val uid = auth.currentUser?.uid ?: return
         val itemsTotal = totalCents(items)
@@ -163,6 +211,7 @@ class CartActivity : AppCompatActivity() {
 
         val deliveryType = getSelectedDeliveryType()
 
+        // Case 1: Pickup -> no delivery fee.
         if (deliveryType == "PICKUP") {
             val grandTotal = itemsTotal
             b.tvSubtotal.text = formatCurrency(itemsTotal)
@@ -179,6 +228,7 @@ class CartActivity : AppCompatActivity() {
             return
         }
 
+        // Case 2: Delivery -> we need buyer address and seller location.
         val buyerRef = db.reference.child("Buyers").child(uid)
 
         buyerRef.child("address").get()
@@ -187,6 +237,7 @@ class CartActivity : AppCompatActivity() {
                 val buyerLat = address?.latitude
                 val buyerLng = address?.longitude
 
+                // No address -> show a hint and use itemsTotal only.
                 if (address == null || buyerLat == null || buyerLng == null) {
                     b.tvSubtotal.text = formatCurrency(itemsTotal)
                     b.tvDeliveryFee.text = "Add address"
@@ -194,6 +245,7 @@ class CartActivity : AppCompatActivity() {
                     return@addOnSuccessListener
                 }
 
+                // We also need to know which seller this cart belongs to.
                 buyerRef.child("cartMeta").child("sellerUid").get()
                     .addOnSuccessListener { metaSnap ->
                         val sellerUid = metaSnap.getValue(String::class.java)
@@ -204,6 +256,7 @@ class CartActivity : AppCompatActivity() {
                             return@addOnSuccessListener
                         }
 
+                        // Load seller's coordinates to calculate distance.
                         db.reference.child("Sellers").child(sellerUid).get()
                             .addOnSuccessListener { sellerSnap ->
                                 val sLatAny = sellerSnap.child("latitude").value
@@ -225,6 +278,7 @@ class CartActivity : AppCompatActivity() {
                                 b.tvSubtotal.text = formatCurrency(itemsTotal)
 
                                 if (deliveryFeeCents < 0L) {
+                                    // Outside allowed radius -> no delivery.
                                     b.tvDeliveryFee.text = "Not available"
                                     b.tvGrandTotal.text = formatCurrency(itemsTotal)
                                 } else {
@@ -257,9 +311,17 @@ class CartActivity : AppCompatActivity() {
             }
     }
 
+    // Adapter callback: increment quantity.
     private fun inc(item: CartItem) = setQty(item, item.quantity + 1)
+
+    // Adapter callback: decrement quantity.
     private fun dec(item: CartItem) = setQty(item, (item.quantity - 1).coerceAtLeast(0))
 
+    /**
+     * Updates the quantity of an item in the cart:
+     * - Removes it if q <= 0
+     * - If increasing, checks stock from seller's products node before applying change.
+     */
     private fun setQty(item: CartItem, q: Int) {
         val uid = auth.currentUser?.uid ?: return
         val cartItemRef =
@@ -270,6 +332,7 @@ class CartActivity : AppCompatActivity() {
             return
         }
 
+        // If new qty is less or equal to current -> just update without stock check.
         if (q <= item.quantity) {
             cartItemRef.child("quantity").setValue(q)
             return
@@ -281,6 +344,7 @@ class CartActivity : AppCompatActivity() {
             return
         }
 
+        // Check stock from seller's product quantity field.
         val productQtyRef = db.reference
             .child("Sellers")
             .child(sellerUid)
@@ -331,6 +395,11 @@ class CartActivity : AppCompatActivity() {
 
     // ===== CHECKOUT + ORDER CREATION =====
 
+    /**
+     * Validates cart + address + credit before creating an order in Firebase.
+     * Handles both pickup and delivery flows and checks that all items
+     * belong to the same restaurant.
+     */
     private fun checkout() {
         val uid = auth.currentUser?.uid ?: run {
             Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show()
@@ -343,6 +412,7 @@ class CartActivity : AppCompatActivity() {
 
         val deliveryType = getSelectedDeliveryType()
 
+        // If paying by credit, ensure sufficient credit for the grand total.
         if (useCreditForPayment) {
             val itemsTotal = totalCents(items)
             val deliveryFee = calculateFinalDeliveryFee(deliveryType, uid, itemsTotal)
@@ -368,6 +438,7 @@ class CartActivity : AppCompatActivity() {
         }
         val sellerUidForCart = sellerUids.first()
 
+        // Delivery requires address with location.
         if (deliveryType == "DELIVERY") {
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java)
@@ -399,6 +470,7 @@ class CartActivity : AppCompatActivity() {
                     .show()
             }
         } else {
+            // Pickup: address is optional; we still try to attach if it exists.
             buyerRef.child("address").get().addOnSuccessListener { snap ->
                 val addr = snap.getValue(Address::class.java)
                 placeOrder(
@@ -422,6 +494,10 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Placeholder for calculating a delivery fee at checkout.
+     * Currently returns the base 0-10km price for credit check prevalidation.
+     */
     private fun calculateFinalDeliveryFee(deliveryType: String, uid: String, itemsTotal: Long): Long {
         if (deliveryType == "PICKUP") return 0L
         return try {
@@ -431,6 +507,10 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Writes a new order into /Buyers and /Sellers paths with correct totals,
+     * deducting wallet credit when requested. Also clears cart upon success.
+     */
     private fun placeOrder(
         uid: String,
         buyerRef: DatabaseReference,
@@ -454,6 +534,7 @@ class CartActivity : AppCompatActivity() {
         val creditUsed = if (useCreditForPayment) minOf(userCredit, orderTotal) else 0L
         val cashAmount = orderTotal - creditUsed
 
+        // PICKUP path: no distance check, just 0 deliveryFeeCents.
         if (deliveryType == "PICKUP") {
             val updates = hashMapOf<String, Any?>()
 
@@ -470,8 +551,10 @@ class CartActivity : AppCompatActivity() {
                 "cashAmount" to cashAmount
             )
 
+            // Buyer side.
             updates["Buyers/$uid/orders/$orderId"] = buyerOrderMap
 
+            // Seller side entries (group items by sellerUid).
             orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
                 if (!sellerUid.isNullOrEmpty()) {
                     val sellerBase = "Sellers/$sellerUid/orders/$orderId"
@@ -490,12 +573,14 @@ class CartActivity : AppCompatActivity() {
                 }
             }
 
+            // Deduct credit if used.
             if (creditUsed > 0) {
                 updates["Buyers/$uid/credit"] = userCredit - creditUsed
             }
 
             rootRef.updateChildren(updates).addOnCompleteListener { task ->
                 if (task.isSuccessful) {
+                    // Clear cart & metadata once order is placed.
                     buyerRef.child("cart").removeValue()
                     buyerRef.child("cartMeta").removeValue()
                     Toast.makeText(this, "Order placed (pickup)!", Toast.LENGTH_LONG).show()
@@ -510,6 +595,7 @@ class CartActivity : AppCompatActivity() {
                 }
             }
         } else {
+            // DELIVERY path: must check distance again and compute fee using coordinates.
             val buyerLat = address?.latitude
             val buyerLng = address?.longitude
 
@@ -570,6 +656,7 @@ class CartActivity : AppCompatActivity() {
                     val updates = hashMapOf<String, Any?>()
                     updates["Buyers/$uid/orders/$orderId"] = buyerOrderMap
 
+                    // Distribute order across sellers; the main one gets the deliveryFee.
                     orderItems.groupBy { it.sellerUid }.forEach { (sellerUid, sellerItems) ->
                         if (!sellerUid.isNullOrEmpty()) {
                             val sellerBase = "Sellers/$sellerUid/orders/$orderId"
@@ -622,6 +709,10 @@ class CartActivity : AppCompatActivity() {
 
     // ===== helpers =====
 
+    /**
+     * Parses a price string representing whole units into cents.
+     * Example: "25" -> 2500 (25.00).
+     */
     private fun parsePrice(priceString: String?): Long {
         if (priceString.isNullOrBlank()) return 0L
         val digitsOnly = priceString.filter { it.isDigit() }
@@ -630,21 +721,34 @@ class CartActivity : AppCompatActivity() {
         return units * 100L
     }
 
+    /**
+     * Calculates total cents for a list of CartItem objects.
+     */
     private fun totalCents(items: List<CartItem>): Long =
         items.sumOf { parsePrice(it.price) * it.quantity }
 
+    /**
+     * Formats cents as currency using the app's currency symbol.
+     */
     private fun formatCurrency(cents: Long): String {
+        val symbol = getString(R.string.currency_symbol)
         val whole = cents / 100
         val frac = (cents % 100).toString().padStart(2, '0')
-        return "$$whole.$frac"
+        return "$symbol$whole.$frac"
     }
 
+    /**
+     * Returns "PICKUP" or "DELIVERY" based on the selected radio button.
+     */
     private fun getSelectedDeliveryType(): String {
         val checkedId = b.rgDeliveryType.checkedRadioButtonId
         val rb = findViewById<RadioButton>(checkedId)
         return if (rb != null && rb.id == b.rbPickup.id) "PICKUP" else "DELIVERY"
     }
 
+    /**
+     * Haversine formula for distance in kilometers between two geo points.
+     */
     private fun haversineKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
         val R = 6371.0
         val dLat = Math.toRadians(lat2 - lat1)
@@ -657,6 +761,10 @@ class CartActivity : AppCompatActivity() {
         return R * c
     }
 
+    /**
+     * Maps distance in km to one of three delivery fee brackets (cents),
+     * or returns -1 if outside supported radius (> 30 km).
+     */
     private fun calculateDeliveryFeeCents(distanceKm: Double): Long {
         return when {
             distanceKm <= 10.0 -> DELIVERY_FEE_0_TO_10_KM_CENTS
@@ -668,6 +776,9 @@ class CartActivity : AppCompatActivity() {
 
     // ==== NOTIFICATIONS (heads-up) ====
 
+    /**
+     * Creates the notification channel used for order-related notifications (Android 8+).
+     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
@@ -686,6 +797,9 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Checks whether we have permission to post notifications.
+     */
     private fun hasNotificationPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
@@ -697,6 +811,9 @@ class CartActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Fetches restaurant name and then displays an "order placed" notification.
+     */
     private fun showOrderPlacedNotification(orderId: String, sellerUid: String) {
         if (!hasNotificationPermission()) return
 
@@ -711,6 +828,10 @@ class CartActivity : AppCompatActivity() {
             }
     }
 
+    /**
+     * Builds and shows the local notification.
+     * Tapping it opens MainActivity on the Orders tab.
+     */
     private fun sendOrderPlacedNotification(orderId: String, restaurantName: String) {
         if (!hasNotificationPermission()) return
 

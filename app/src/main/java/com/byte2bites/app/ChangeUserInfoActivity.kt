@@ -10,6 +10,13 @@ import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 
+/**
+ * Activity that allows the user to update their basic profile info:
+ * - Full name
+ * - Phone number
+ *
+ * Data is stored under /Buyers/{uid}.
+ */
 class ChangeUserInfoActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityChangeUserInfoBinding
@@ -24,17 +31,24 @@ class ChangeUserInfoActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
+        // Back arrow -> close this screen.
         binding.ivBack.setOnClickListener {
             finish()
         }
 
+        // Load initial values for the form.
         loadCurrentUserInfo()
 
+        // Save button -> update in Firebase.
         binding.btnSaveChanges.setOnClickListener {
             updateUserInfo()
         }
     }
 
+    /**
+     * Reads the current user object from /Buyers/{uid} and populates
+     * the full name and phone number text fields.
+     */
     private fun loadCurrentUserInfo() {
         val uid = auth.currentUser?.uid ?: return
         val userRef = database.reference.child("Buyers").child(uid)
@@ -54,6 +68,10 @@ class ChangeUserInfoActivity : AppCompatActivity() {
         })
     }
 
+    /**
+     * Validates fullName and phoneNumber, then updates the corresponding
+     * fields on the /Buyers/{uid} node.
+     */
     private fun updateUserInfo() {
         val fullName = binding.etFullName.text.toString().trim()
         val phoneNumber = binding.etPhoneNumber.text.toString().trim()

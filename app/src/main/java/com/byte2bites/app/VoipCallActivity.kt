@@ -16,9 +16,23 @@ import androidx.core.content.ContextCompat
 import com.byte2bites.app.databinding.ActivityVoipCallBinding
 import com.google.firebase.auth.FirebaseAuth
 
+/**
+ * Activity representing a point-to-point VoIP call screen.
+ *
+ * Features:
+ * - User manually enters IP/port (or receives them via Intent extras).
+ * - On "Start Call", plays a local ringing tone then starts two-way UDP audio using VoipAudioEngine.
+ * - Enforces RECORD_AUDIO runtime permission.
+ * - Provides a "Call status" text label for user feedback.
+ *
+ * NOTE:
+ * This implementation focuses on the audio path and basic UX,
+ * without creating any call logs in Firebase (signaling is local only here).
+ */
 class VoipCallActivity : AppCompatActivity() {
 
     companion object {
+        // Intent extras keys used for passing default remote IP/port and callee id.
         const val EXTRA_REMOTE_IP = "EXTRA_REMOTE_IP"
         const val EXTRA_REMOTE_PORT = "EXTRA_REMOTE_PORT"
         const val EXTRA_CALLEE_UID = "EXTRA_CALLEE_UID"
@@ -27,10 +41,11 @@ class VoipCallActivity : AppCompatActivity() {
     private lateinit var b: ActivityVoipCallBinding
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
 
+    // Engine that handles the raw UDP audio sending/receiving.
     private var audioEngine: VoipAudioEngine? = null
     private val REQ_RECORD_AUDIO = 2001
 
-    // Simple local “ringing” tone
+    // Simple local “ringing” tone before call is connected.
     private var ringtone: Ringtone? = null
     private val uiHandler = Handler(Looper.getMainLooper())
 
@@ -39,10 +54,10 @@ class VoipCallActivity : AppCompatActivity() {
         b = ActivityVoipCallBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        // Back
+        // Back arrow finishes the activity.
         b.ivBack.setOnClickListener { finish() }
 
-        // Manual start / end
+        // Manual start / end buttons.
         b.btnStartCall.setOnClickListener { startCallWithPermissionCheck() }
         b.btnEndCall.setOnClickListener { endCallWithConfirm() }
 
@@ -65,6 +80,9 @@ class VoipCallActivity : AppCompatActivity() {
 
     // ===== PERMISSIONS =====
 
+    /**
+     * Checks whether the RECORD_AUDIO runtime permission is already granted.
+     */
     private fun hasMicPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -72,6 +90,11 @@ class VoipCallActivity : AppCompatActivity() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    /**
+     * Ensures microphone permission is granted before starting the call.
+     * - If granted: proceeds to startCall().
+     * - If not: asks the user via requestPermissions.
+     */
     private fun startCallWithPermissionCheck() {
         if (hasMicPermission()) {
             startCall()
@@ -87,6 +110,10 @@ class VoipCallActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Callback from Android runtime permission system.
+     * When the microphone permission is granted we continue with startCall().
+     */
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,
@@ -106,6 +133,10 @@ class VoipCallActivity : AppCompatActivity() {
 
     // ===== CALL + AUDIO LOGIC (NO FIREBASE CALL LOGS) =====
 
+    /**
+     * Validates the call inputs (IP, port), ensures a logged-in user,
+     * and then starts ringing + VoipAudioEngine after a short delay.
+     */
     private fun startCall() {
         val callerUid = auth.currentUser?.uid
         if (callerUid.isNullOrEmpty()) {
@@ -113,7 +144,8 @@ class VoipCallActivity : AppCompatActivity() {
             return
         }
 
-        val calleeUid = b.etCalleeUid.text.toString().trim() // optional, just for your info
+        // Callee UID is optional; used only for display purposes.
+        val calleeUid = b.etCalleeUid.text.toString().trim()
         val ip = b.etIpAddress.text.toString().trim()
         val portStr = b.etPort.text.toString().trim()
 
@@ -128,14 +160,14 @@ class VoipCallActivity : AppCompatActivity() {
             return
         }
 
-        // Stop any previous call/audio
+        // Stop any previous call/audio session before starting a new one.
         stopAudio()
 
-        // Just local status text – no DB
+        // Update status text with a friendly message.
         val who = if (calleeUid.isNotEmpty()) calleeUid else "other side"
         b.tvCallStatus.text = "Calling $who..."
 
-        // Play a simple ringing tone for ~1.5s, then start audio
+        // Play a simple ringing tone for ~1.5s, then start audio.
         startRingingTone()
         uiHandler.postDelayed({
             stopRingingTone()
@@ -145,8 +177,8 @@ class VoipCallActivity : AppCompatActivity() {
     }
 
     /**
-     * Start capturing mic audio and sending via UDP.
-     * We **re-check** RECORD_AUDIO permission here to satisfy Lint and avoid crashes.
+     * Starts the underlying VoipAudioEngine with the provided IP and port.
+     * We re-check permission here as a safety net.
      */
     private fun startAudio(remoteIp: String, port: Int) {
         if (!hasMicPermission()) {
@@ -154,8 +186,10 @@ class VoipCallActivity : AppCompatActivity() {
             return
         }
 
+        // Ensure no previous engine is running.
         stopAudio()
 
+        // Symmetric audio: same port is used for sending and receiving.
         audioEngine = VoipAudioEngine(
             remoteIp = remoteIp,
             remotePort = port,
@@ -178,6 +212,9 @@ class VoipCallActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Stops the VoipAudioEngine, if any, and clears the reference.
+     */
     private fun stopAudio() {
         audioEngine?.stop()
         audioEngine = null
@@ -185,6 +222,9 @@ class VoipCallActivity : AppCompatActivity() {
 
     // ===== RINGING TONE (LOCAL ONLY) =====
 
+    /**
+     * Plays the default system ringtone to simulate a ringing state.
+     */
     private fun startRingingTone() {
         if (ringtone == null) {
             val uri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
@@ -195,6 +235,9 @@ class VoipCallActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
+    /**
+     * Stops the ringing sound if it is currently playing.
+     */
     private fun stopRingingTone() {
         try {
             ringtone?.stop()
@@ -203,6 +246,9 @@ class VoipCallActivity : AppCompatActivity() {
 
     // ===== END CALL =====
 
+    /**
+     * Shows a confirmation dialog to avoid accidentally ending the call.
+     */
     private fun endCallWithConfirm() {
         AlertDialog.Builder(this)
             .setTitle("End call")
@@ -214,6 +260,11 @@ class VoipCallActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Ends the call:
+     * - Stops ringing and audio engine.
+     * - Updates the call status label.
+     */
     private fun endCall() {
         stopRingingTone()
         stopAudio()
@@ -223,6 +274,7 @@ class VoipCallActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Ensure no delayed callbacks or audio continue after screen is closed.
         uiHandler.removeCallbacksAndMessages(null)
         stopRingingTone()
         stopAudio()

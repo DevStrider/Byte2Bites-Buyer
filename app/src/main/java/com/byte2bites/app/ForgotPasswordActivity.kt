@@ -7,6 +7,14 @@ import androidx.appcompat.app.AppCompatActivity
 import com.byte2bites.app.databinding.ActivityForgotPasswordBinding
 import com.google.firebase.auth.FirebaseAuth
 
+/**
+ * Activity that lets the user request a password reset email.
+ *
+ * Flow:
+ * - User enters email.
+ * - We validate format.
+ * - Call FirebaseAuth.sendPasswordResetEmail(email).
+ */
 class ForgotPasswordActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityForgotPasswordBinding
@@ -22,15 +30,21 @@ class ForgotPasswordActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
+        // Back arrow -> close the screen.
         binding.ivBack.setOnClickListener {
             finish()
         }
 
+        // Main action: send reset email.
         binding.btnSendResetLink.setOnClickListener {
             sendPasswordResetEmail()
         }
     }
 
+    /**
+     * Validates that the email is non-empty & correctly formatted,
+     * then sends a password reset email using FirebaseAuth.
+     */
     private fun sendPasswordResetEmail() {
         val email = binding.etEmail.text.toString().trim()
 

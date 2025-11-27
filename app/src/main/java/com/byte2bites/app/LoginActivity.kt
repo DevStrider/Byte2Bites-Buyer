@@ -8,6 +8,16 @@ import com.byte2bites.app.databinding.ActivityLoginBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 
+/**
+ * Activity that handles buyer login using Firebase Authentication.
+ *
+ * Flow:
+ * - User enters email/password.
+ * - signInWithEmailAndPassword is called.
+ * - After successful auth, we verify that this uid exists under /Buyers.
+ * - If it's a buyer account, user is redirected to MainActivity.
+ * - Otherwise, login is rejected and user is signed out.
+ */
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
@@ -26,19 +36,26 @@ class LoginActivity : AppCompatActivity() {
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
+        // Back arrow -> close login and return to previous screen.
         binding.ivBack.setOnClickListener {
             finish()
         }
 
+        // Attempt login when the button is clicked.
         binding.btnLogin.setOnClickListener {
             loginUser()
         }
 
+        // Forgot password -> open password reset screen.
         binding.tvForgotPassword.setOnClickListener {
             startActivity(Intent(this, ForgotPasswordActivity::class.java))
         }
     }
 
+    /**
+     * Validates input and attempts to sign the user in with FirebaseAuth.
+     * After successful authentication, verifies that the account is a Buyer.
+     */
     private fun loginUser() {
         val email = binding.etEmail.text.toString().trim()
         val password = binding.etPassword.text.toString().trim()
@@ -48,6 +65,7 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
+        // Firebase Authentication sign in call.
         auth.signInWithEmailAndPassword(email, password)
             .addOnCompleteListener { task ->
                 if (task.isSuccessful) {
@@ -61,7 +79,7 @@ class LoginActivity : AppCompatActivity() {
                         return@addOnCompleteListener
                     }
 
-                    // Ensure this user is a Buyer
+                    // Ensure this user is a Buyer (role-based access).
                     database.reference.child("Buyers").child(uid).get()
                         .addOnSuccessListener { dataSnapshot ->
                             if (dataSnapshot.exists()) {
@@ -75,6 +93,7 @@ class LoginActivity : AppCompatActivity() {
                                 startActivity(intent)
                                 finish()
                             } else {
+                                // Auth succeeded but not found under /Buyers => wrong role.
                                 Toast.makeText(
                                     this,
                                     "Login failed: This account is not a buyer account.",

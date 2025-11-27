@@ -8,12 +8,25 @@ import com.byte2bites.app.databinding.ActivityProductDetailsBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 
+/**
+ * Activity that shows details for a single product and allows user to manage its quantity in cart.
+ *
+ * Responsibilities:
+ * - Display name, image, description, and price of the product.
+ * - Handle:
+ *   - "Add to cart" for first time,
+ *   - ± buttons for increasing/decreasing quantity.
+ * - Enforce:
+ *   - Single-restaurant cart (clear cart when switching sellers with confirmation).
+ *   - Quantity ≤ available stock in the seller's inventory.
+ */
 class ProductDetailsActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityProductDetailsBinding
     private val auth by lazy { FirebaseAuth.getInstance() }
     private val db by lazy { FirebaseDatabase.getInstance() }
 
+    // CartItem representation of the selected product.
     private lateinit var productItem: CartItem   // item we add/update in cart
     private var currentQuantity: Int = 0
 
@@ -45,6 +58,7 @@ class ProductDetailsActivity : AppCompatActivity() {
             .placeholder(R.drawable.ic_profile_placeholder)
             .into(b.ivImage)
 
+        // Populate local productItem used for cart operations.
         productItem = CartItem(
             productID = productID,
             name = name,
@@ -68,12 +82,19 @@ class ProductDetailsActivity : AppCompatActivity() {
 
     // === UI helpers ===
 
+    /**
+     * Shows only the "Add to cart" button and hides quantity controls.
+     * Used when quantity is zero (not in cart).
+     */
     private fun showAddButton() {
         currentQuantity = 0
         b.btnAddToCart.visibility = android.view.View.VISIBLE
         b.qtyContainer.visibility = android.view.View.GONE
     }
 
+    /**
+     * Shows the quantity controls (plus/minus) and hides the "Add to cart" button.
+     */
     private fun showQuantityControls(qty: Int) {
         currentQuantity = qty
         b.tvQuantity.text = qty.toString()
@@ -83,6 +104,11 @@ class ProductDetailsActivity : AppCompatActivity() {
 
     // === Load existing quantity from cart if present ===
 
+    /**
+     * Reads current quantity for this product from the buyer's cart.
+     * - If quantity > 0 → showQuantityControls
+     * - Otherwise      → showAddButton
+     */
     private fun loadCurrentQuantity() {
         val uid = auth.currentUser?.uid ?: run {
             showAddButton()
@@ -114,6 +140,10 @@ class ProductDetailsActivity : AppCompatActivity() {
 
     // === Load available stock from seller node ===
 
+    /**
+     * Loads the available stock quantity for this product from the seller node.
+     * Updates maxAvailableQuantity accordingly and clamps currentQuantity if needed.
+     */
     private fun loadAvailableQuantity() {
         val sellerUid = productItem.sellerUid ?: return
         val productId = productItem.productID
@@ -138,7 +168,7 @@ class ProductDetailsActivity : AppCompatActivity() {
                     ).show()
                 }
 
-                // If user already had a higher qty, clamp it down
+                // If user already had a higher qty than available, clamp it down.
                 if (currentQuantity > maxAvailableQuantity) {
                     currentQuantity = maxAvailableQuantity.coerceAtLeast(0)
                     if (currentQuantity == 0) {
@@ -149,13 +179,19 @@ class ProductDetailsActivity : AppCompatActivity() {
                 }
             }
             .addOnFailureListener {
-                // If we can't load it, treat as "no limit" to avoid blocking
+                // If we can't load it, treat as "no limit" to avoid blocking.
                 maxAvailableQuantity = Int.MAX_VALUE
             }
     }
 
     // === Add first item (or handle cross-restaurant cart) ===
 
+    /**
+     * Entry point when user taps "Add to cart".
+     * - Ensures user is logged in.
+     * - Ensures product is in stock.
+     * - Enforces single-restaurant cart, with confirmation dialog when switching.
+     */
     /** Enforce single-restaurant cart with confirm dialog when switching */
     private fun prepareAddToCart() {
         val uid = auth.currentUser?.uid ?: run {
@@ -207,6 +243,10 @@ class ProductDetailsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Adds first item of this product to the cart (or increments it if it already exists).
+     * Also sets cartMeta.sellerUid when needed and shows the quantity controls.
+     */
     /** Adds the first item (or increments if already in this cart) and shows quantity controls */
     private fun addFirstItemToCart(
         cartRef: com.google.firebase.database.DatabaseReference,
@@ -245,6 +285,12 @@ class ProductDetailsActivity : AppCompatActivity() {
 
     // === Plus / minus actions ===
 
+    /**
+     * Handles "+" button click:
+     * - Reads current quantity from cart.
+     * - Increments by 1 if stock allows.
+     * - Writes back to cart and updates UI.
+     */
     private fun increaseQuantity() {
         val uid = auth.currentUser?.uid ?: run {
             Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show()
@@ -288,6 +334,11 @@ class ProductDetailsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Handles "−" button click:
+     * - Decrements quantity (minimum 0).
+     * - Removes item completely from cart when new quantity is 0.
+     */
     private fun decreaseQuantity() {
         val uid = auth.currentUser?.uid ?: run {
             Toast.makeText(this, "You are not logged in", Toast.LENGTH_SHORT).show()

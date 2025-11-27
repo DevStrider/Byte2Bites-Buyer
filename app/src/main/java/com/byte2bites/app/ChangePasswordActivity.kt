@@ -7,6 +7,14 @@ import com.byte2bites.app.databinding.ActivityChangePasswordBinding
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
 
+/**
+ * Activity that allows the logged-in user to change their password.
+ *
+ * Flow:
+ * - User enters current password, new password and confirmation.
+ * - Re-authenticate with current password.
+ * - If successful, call updatePassword() with the new password.
+ */
 class ChangePasswordActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityChangePasswordBinding
@@ -19,15 +27,23 @@ class ChangePasswordActivity : AppCompatActivity() {
 
         auth = FirebaseAuth.getInstance()
 
+        // Back arrow -> close this screen.
         binding.ivBack.setOnClickListener {
             finish()
         }
 
+        // Main action: update password.
         binding.btnUpdatePassword.setOnClickListener {
             updatePassword()
         }
     }
 
+    /**
+     * Validates form fields and performs password change:
+     * - Checks non-empty and min length.
+     * - Re-authenticates user with current password.
+     * - Calls FirebaseAuth.updatePassword() with the new one.
+     */
     private fun updatePassword() {
         val currentPassword = binding.etCurrentPassword.text.toString()
         val newPassword = binding.etNewPassword.text.toString()
@@ -52,8 +68,10 @@ class ChangePasswordActivity : AppCompatActivity() {
         if (user != null && user.email != null) {
             val credential = EmailAuthProvider.getCredential(user.email!!, currentPassword)
 
+            // Re-authenticate to confirm the current password is correct.
             user.reauthenticate(credential).addOnCompleteListener { reauthTask ->
                 if (reauthTask.isSuccessful) {
+                    // If re-auth succeeds, update password.
                     user.updatePassword(newPassword).addOnCompleteListener { updateTask ->
                         if (updateTask.isSuccessful) {
                             Toast.makeText(this, "Password updated successfully!", Toast.LENGTH_SHORT).show()

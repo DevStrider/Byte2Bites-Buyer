@@ -7,6 +7,17 @@ import androidx.core.content.ContextCompat
 import androidx.viewpager2.widget.ViewPager2
 import com.byte2bites.app.databinding.ActivityMainBinding
 
+/**
+ * Main host activity for the buyer app.
+ *
+ * Contains:
+ * - A ViewPager2 that hosts 3 fragments: Home, Orders, Profile.
+ * - A custom bottom navigation bar that updates with the pager.
+ *
+ * Features:
+ * - Swiping between fragments (Milestone 4 requirement).
+ * - Deep-link navigation from notifications based on "navigate_to" extra.
+ */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityMainBinding
@@ -28,6 +39,9 @@ class MainActivity : AppCompatActivity() {
         handleNavigationIntent(intent)
     }
 
+    /**
+     * When activity is reused with a new Intent, we also parse navigation target.
+     */
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         if (intent != null) {
@@ -38,6 +52,12 @@ class MainActivity : AppCompatActivity() {
 
     // =========== Navigation from notification ===========
 
+    /**
+     * Examine the "navigate_to" extra and select the correct tab:
+     * - "orders"  -> OrdersFragment
+     * - "profile" -> ProfileFragment
+     * - "home"    -> HomeFragment
+     */
     private fun handleNavigationIntent(intent: Intent) {
         when (intent.getStringExtra("navigate_to")) {
             "orders" -> selectTab(1)
@@ -48,6 +68,10 @@ class MainActivity : AppCompatActivity() {
 
     // =========== ViewPager2 setup ===========
 
+    /**
+     * Configures the ViewPager2 with the MainPagerAdapter and keeps
+     * bottom navigation in sync when the user swipes.
+     */
     private fun setupViewPager() {
         val pagerAdapter = MainPagerAdapter(this)
         b.viewPager.adapter = pagerAdapter
@@ -64,17 +88,27 @@ class MainActivity : AppCompatActivity() {
 
     // =========== Custom bottom nav (LinearLayout) ===========
 
+    /**
+     * Sets click listeners for bottom navigation tabs to switch the ViewPager.
+     */
     private fun setupBottomNav() {
         b.navHome.setOnClickListener { selectTab(0) }
         b.navOrders.setOnClickListener { selectTab(1) }
         b.navProfile.setOnClickListener { selectTab(2) }
     }
 
+    /**
+     * Switches the currently visible fragment in the ViewPager and updates nav colors.
+     */
     private fun selectTab(index: Int) {
         b.viewPager.currentItem = index
         updateBottomNav(index)
     }
 
+    /**
+     * Applies active/inactive colors to bottom navigation icons and labels
+     * based on which tab is currently selected.
+     */
     private fun updateBottomNav(selectedIndex: Int) {
         val activeColor = ContextCompat.getColor(this, R.color.bb_primary_blue)
         val inactiveColor = ContextCompat.getColor(this, R.color.text_secondary_dark)

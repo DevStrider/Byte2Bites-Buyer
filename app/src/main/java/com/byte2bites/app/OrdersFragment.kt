@@ -21,6 +21,19 @@ import com.byte2bites.app.databinding.ActivityOrdersBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 
+/**
+ * Fragment responsible for listing all orders of the logged-in buyer.
+ *
+ * Responsibilities:
+ * - Listen for changes to /Buyers/{uid}/orders in realtime.
+ * - Keep a RecyclerView of orders updated (newest first).
+ * - Sync status from seller node → buyer node via extra listeners.
+ * - Show both:
+ *   - Toast popups, and
+ *   - System notifications,
+ *   whenever an order status changes.
+ * - Provide a VoIP icon to open VoipCallActivity and call a restaurant from an order.
+ */
 class OrdersFragment : Fragment() {
 
     private var _b: ActivityOrdersBinding? = null
@@ -35,7 +48,7 @@ class OrdersFragment : Fragment() {
     private val NOTIF_CHANNEL_ID = "orders_channel"
     private val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
 
-    // Cache seller names
+    // Cache seller names to avoid re-reading from Firebase on every update.
     private val sellerNameCache = mutableMapOf<String, String>()
 
     // For syncing seller status -> buyer node
@@ -51,6 +64,13 @@ class OrdersFragment : Fragment() {
         return b.root
     }
 
+    /**
+     * Called when the view is ready.
+     * - Sets up notifications.
+     * - Configures the RecyclerView.
+     * - Wire up VoIP button.
+     * - Starts listening for buyer orders.
+     */
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
@@ -70,7 +90,7 @@ class OrdersFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
 
-        // Clean up status listeners
+        // Clean up status listeners to avoid leaks and duplicate callbacks.
         orderStatusRefs.forEach { (orderId, ref) ->
             val listener = orderStatusListeners[orderId]
             if (listener != null) {
@@ -85,6 +105,10 @@ class OrdersFragment : Fragment() {
 
     // === Call restaurant from an order ===
 
+    /**
+     * Starts VoipCallActivity, passing the seller UID as the "callee".
+     * The IP/port will be entered manually in the call screen.
+     */
     private fun callRestaurant(order: Order) {
         val sellerUid = order.items.firstOrNull()?.sellerUid
 
@@ -100,6 +124,10 @@ class OrdersFragment : Fragment() {
         startActivity(intent)
     }
 
+    /**
+     * Top-right VoIP icon that opens an empty call screen so the user
+     * can manually input IP/port to call any peer.
+     */
     private fun setupVoipButton() {
         b.ivVoip.setOnClickListener {
             startActivity(Intent(requireContext(), VoipCallActivity::class.java))
@@ -108,6 +136,10 @@ class OrdersFragment : Fragment() {
 
     // ===== Load orders (buyer node) =====
 
+    /**
+     * Subscribes to /Buyers/{uid}/orders and keeps the local list in sync.
+     * Also sets up individual listeners to mirror status from the seller side.
+     */
     private fun loadOrders() {
         val uid = auth.currentUser?.uid
         if (uid == null) {
@@ -130,7 +162,7 @@ class OrdersFragment : Fragment() {
                     setupOrderStatusSyncListener(uid, order)
                 }
 
-                // Remove listeners for orders that no longer exist
+                // Remove listeners for orders that no longer exist on buyer side
                 val iterator = orderStatusRefs.keys.iterator()
                 while (iterator.hasNext()) {
                     val key = iterator.next()
@@ -145,7 +177,7 @@ class OrdersFragment : Fragment() {
                     }
                 }
 
-                // Newest first
+                // Newest orders appear first.
                 list.sortByDescending { it.timestamp }
 
                 orders.clear()
@@ -166,6 +198,8 @@ class OrdersFragment : Fragment() {
      * Listen to seller status changes and sync to buyer node:
      *   Sellers/{sellerUid}/orders/{orderId}/status
      * → Buyers/{buyerUid}/orders/{orderId}/status
+     *
+     * Each order has at most one active listener to prevent duplicates.
      */
     private fun setupOrderStatusSyncListener(buyerUid: String, order: Order) {
         val orderId = order.orderId
@@ -198,6 +232,11 @@ class OrdersFragment : Fragment() {
         orderStatusRefs[orderId] = sellerOrderRef
     }
 
+    /**
+     * Updates the buyer's order status if it has actually changed and then:
+     * - shows a notification (if allowed),
+     * - shows a popup toast.
+     */
     private fun updateBuyerOrderStatus(buyerUid: String, orderId: String, sellerStatus: String) {
         val buyerStatusRef = db.reference
             .child("Buyers")
@@ -209,10 +248,12 @@ class OrdersFragment : Fragment() {
         buyerStatusRef.get().addOnSuccessListener { currentSnap ->
             val currentStatus = currentSnap.getValue(String::class.java) ?: ""
 
+            // Ignore initial WAITING_APPROVAL if buyer has nothing yet.
             if (currentStatus.isEmpty() && sellerStatus == "WAITING_APPROVAL") {
                 return@addOnSuccessListener
             }
 
+            // If status didn't change, do nothing.
             if (currentStatus == sellerStatus) {
                 return@addOnSuccessListener
             }
@@ -239,6 +280,10 @@ class OrdersFragment : Fragment() {
         }
     }
 
+    /**
+     * Returns a human-readable sentence fragment for use in notifications/toasts.
+     * Example: "was accepted", "is out for delivery", etc.
+     */
     private fun getStatusText(status: String, deliveryType: String?): String {
         return when (status) {
             "WAITING_APPROVAL" -> "is waiting for approval"
@@ -253,6 +298,10 @@ class OrdersFragment : Fragment() {
         }
     }
 
+    /**
+     * Shows a toast popup with seller name and new status text.
+     * Seller name is cached after first fetch from Firebase.
+     */
     private fun showStatusPopup(order: Order, statusText: String) {
         val sellerUid = order.items.firstOrNull()?.sellerUid ?: ""
 
@@ -297,6 +346,9 @@ class OrdersFragment : Fragment() {
 
     // ==== NOTIFICATIONS ====
 
+    /**
+     * Creates a notification channel for order-related notifications (Android 8+).
+     */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Orders"
@@ -316,6 +368,9 @@ class OrdersFragment : Fragment() {
         }
     }
 
+    /**
+     * Requests POST_NOTIFICATIONS permission on Android 13+ if it has not been granted yet.
+     */
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
@@ -337,8 +392,13 @@ class OrdersFragment : Fragment() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        // For this fragment, we only need best-effort notifications,
+        // so we don't need to do anything special here.
     }
 
+    /**
+     * Returns true if we currently have permission to post notifications.
+     */
     private fun hasNotificationPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ContextCompat.checkSelfPermission(
@@ -350,6 +410,9 @@ class OrdersFragment : Fragment() {
         }
     }
 
+    /**
+     * Ensures seller name is known then forwards to sendStatusNotification().
+     */
     private fun showStatusNotification(order: Order, statusText: String) {
         if (!hasNotificationPermission()) return
 
@@ -377,6 +440,10 @@ class OrdersFragment : Fragment() {
             }
     }
 
+    /**
+     * Builds and shows the actual notification,
+     * navigating to the Orders tab when tapped.
+     */
     private fun sendStatusNotification(
         restaurantName: String,
         statusText: String,
@@ -407,6 +474,7 @@ class OrdersFragment : Fragment() {
         val title = getString(R.string.app_name)
         val text = "Order from $restaurantName: $statusText"
 
+        // Generate a stable notification ID based on orderId + statusText.
         val notificationKey = "$orderId-$statusText"
         val notificationId = notificationKey.hashCode()
 

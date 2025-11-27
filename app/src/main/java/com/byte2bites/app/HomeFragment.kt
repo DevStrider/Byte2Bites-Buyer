@@ -13,6 +13,15 @@ import com.byte2bites.app.databinding.ActivityHomeBinding
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
 
+/**
+ * Home screen fragment for the buyer.
+ *
+ * Responsibilities:
+ * - Display welcome message with user name.
+ * - Show list of available sellers (restaurants) in a RecyclerView.
+ * - Provide a search box to filter sellers by name.
+ * - Provide quick access to the cart via the cart icon.
+ */
 class HomeFragment : Fragment() {
 
     private var _b: ActivityHomeBinding? = null
@@ -33,12 +42,19 @@ class HomeFragment : Fragment() {
         return b.root
     }
 
+    /**
+     * Called when the view is created:
+     * - Initialize Firebase.
+     * - Setup RecyclerView and search behavior.
+     * - Load greeting and list of sellers.
+     */
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
         auth = FirebaseAuth.getInstance()
         db = FirebaseDatabase.getInstance()
 
+        // Clicking on a seller opens SellerProductsActivity with that seller's UID.
         adapter = SellerAdapter(mutableListOf()) { seller ->
             startActivity(
                 Intent(requireContext(), SellerProductsActivity::class.java).apply {
@@ -50,6 +66,7 @@ class HomeFragment : Fragment() {
         b.rvProducts.layoutManager = LinearLayoutManager(requireContext())
         b.rvProducts.adapter = adapter
 
+        // Cart icon at the top right opens the CartActivity.
         b.ivCart.setOnClickListener {
             startActivity(Intent(requireContext(), CartActivity::class.java))
         }
@@ -66,6 +83,9 @@ class HomeFragment : Fragment() {
 
     // === Top: Welcome Name ===
 
+    /**
+     * Loads the buyer profile and sets "Welcome {name}" at the top of the home screen.
+     */
     private fun loadUserGreeting() {
         val currentUser = auth.currentUser ?: return
 
@@ -85,12 +105,18 @@ class HomeFragment : Fragment() {
 
     // === Search: restaurants/shops only ===
 
+    /**
+     * Hooks a text change listener on the search EditText to filter the sellers list.
+     */
     private fun setupSearch() {
         b.etSearch.addTextChangedListener { text ->
             filterSellers(text?.toString().orEmpty())
         }
     }
 
+    /**
+     * Filters the in-memory sellers list by name and updates the adapter.
+     */
     private fun filterSellers(query: String) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) {
@@ -105,6 +131,9 @@ class HomeFragment : Fragment() {
 
     // === Load sellers ===
 
+    /**
+     * Reads all sellers from /Sellers in Firebase and builds the list shown in the RecyclerView.
+     */
     private fun loadSellers() {
         val user = auth.currentUser
         if (user == null) {
@@ -137,6 +166,7 @@ class HomeFragment : Fragment() {
                     sellers.clear()
                     sellers.addAll(list)
 
+                    // Reuse current search box text to filter the newly loaded list.
                     val q = b.etSearch.text?.toString().orEmpty()
                     filterSellers(q)
 
