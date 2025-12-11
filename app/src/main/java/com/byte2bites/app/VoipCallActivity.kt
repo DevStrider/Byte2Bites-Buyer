@@ -15,6 +15,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.byte2bites.app.databinding.ActivityVoipCallBinding
 import com.google.firebase.auth.FirebaseAuth
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.PrintWriter
+import java.net.Socket
 
 class VoipCallActivity : AppCompatActivity() {
 
@@ -22,6 +26,8 @@ class VoipCallActivity : AppCompatActivity() {
         const val EXTRA_REMOTE_IP = "EXTRA_REMOTE_IP"
         const val EXTRA_REMOTE_PORT = "EXTRA_REMOTE_PORT"
         const val EXTRA_CALLEE_UID = "EXTRA_CALLEE_UID"
+
+        private const val SIGNALING_PORT = 6000  // TCP signaling port
     }
 
     private lateinit var b: ActivityVoipCallBinding
@@ -30,23 +36,24 @@ class VoipCallActivity : AppCompatActivity() {
     private var audioEngine: VoipAudioEngine? = null
     private val REQ_RECORD_AUDIO = 2001
 
-    // Simple local “ringing” tone
+    // ringing tone
     private var ringtone: Ringtone? = null
     private val uiHandler = Handler(Looper.getMainLooper())
+
+    // TCP signaling
+    private var signalingSocket: Socket? = null
+    private var signalingThread: Thread? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityVoipCallBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        // Back
         b.ivBack.setOnClickListener { finish() }
 
-        // Manual start / end
         b.btnStartCall.setOnClickListener { startCallWithPermissionCheck() }
         b.btnEndCall.setOnClickListener { endCallWithConfirm() }
 
-        // --- Autofill from Intent (OrdersActivity, etc.) ---
         val remoteIp = intent.getStringExtra(EXTRA_REMOTE_IP)
         val remotePort = intent.getIntExtra(EXTRA_REMOTE_PORT, -1)
         val calleeUidExtra = intent.getStringExtra(EXTRA_CALLEE_UID)
@@ -60,10 +67,9 @@ class VoipCallActivity : AppCompatActivity() {
         if (!calleeUidExtra.isNullOrEmpty()) {
             b.etCalleeUid.setText(calleeUidExtra)
         }
-        // ---------------------------------------------------
     }
 
-    // ===== PERMISSIONS =====
+    // ===== permissions =====
 
     private fun hasMicPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -104,7 +110,7 @@ class VoipCallActivity : AppCompatActivity() {
         }
     }
 
-    // ===== CALL + AUDIO LOGIC (NO FIREBASE CALL LOGS) =====
+    // ===== call + audio + signaling =====
 
     private fun startCall() {
         val callerUid = auth.currentUser?.uid
@@ -113,8 +119,8 @@ class VoipCallActivity : AppCompatActivity() {
             return
         }
 
-        val calleeUid = b.etCalleeUid.text.toString().trim() // optional, just for your info
-        val ip = b.etIpAddress.text.toString().trim()
+        val calleeUid = b.etCalleeUid.text.toString().trim()
+        val ip = b.etIpAddress.text.toString().trim()    // server IP
         val portStr = b.etPort.text.toString().trim()
 
         if (ip.isEmpty() || portStr.isEmpty()) {
@@ -128,26 +134,25 @@ class VoipCallActivity : AppCompatActivity() {
             return
         }
 
-        // Stop any previous call/audio
         stopAudio()
+        stopSignaling()
 
-        // Just local status text – no DB
         val who = if (calleeUid.isNotEmpty()) calleeUid else "other side"
         b.tvCallStatus.text = "Calling $who..."
 
-        // Play a simple ringing tone for ~1.5s, then start audio
         startRingingTone()
         uiHandler.postDelayed({
             stopRingingTone()
             b.tvCallStatus.text = "Call in progress ($ip:$port)"
+
+            // TCP signaling
+            startSignaling(ip, port)
+
+            // UDP audio through proxy
             startAudio(ip, port)
         }, 1500L)
     }
 
-    /**
-     * Start capturing mic audio and sending via UDP.
-     * We **re-check** RECORD_AUDIO permission here to satisfy Lint and avoid crashes.
-     */
     private fun startAudio(remoteIp: String, port: Int) {
         if (!hasMicPermission()) {
             Toast.makeText(this, "Microphone permission not granted.", Toast.LENGTH_SHORT).show()
@@ -157,15 +162,15 @@ class VoipCallActivity : AppCompatActivity() {
         stopAudio()
 
         audioEngine = VoipAudioEngine(
-            remoteIp = remoteIp,
-            remotePort = port,
-            localPort = port   // symmetric; both sides use the same port
+            remoteIp = remoteIp,   // server IP
+            remotePort = port,     // UDP proxy port (e.g. 5000)
+            localPort = port       // same port locally
         ).also { engine ->
             try {
-                engine.start()   // this call requires RECORD_AUDIO
+                engine.start()
                 Toast.makeText(
                     this,
-                    "Audio started (UDP $remoteIp:$port)",
+                    "Audio started (UDP $remoteIp:$port via proxy)",
                     Toast.LENGTH_SHORT
                 ).show()
             } catch (se: SecurityException) {
@@ -183,33 +188,67 @@ class VoipCallActivity : AppCompatActivity() {
         audioEngine = null
     }
 
-    // ===== RINGING TONE (LOCAL ONLY) =====
+    // ===== TCP signaling =====
+
+    private fun startSignaling(serverIp: String, udpPort: Int) {
+        stopSignaling()
+
+        signalingThread = Thread {
+            try {
+                val socket = Socket(serverIp, SIGNALING_PORT)
+                signalingSocket = socket
+
+                val out = PrintWriter(socket.getOutputStream(), true)
+                val input = BufferedReader(InputStreamReader(socket.getInputStream()))
+
+                val uid = auth.currentUser?.uid ?: "unknown"
+
+                out.println("HELLO role=buyer uid=$uid udpPort=$udpPort")
+                out.println("CALL_INIT from=$uid")
+
+                // fixed: no uninitialized var
+                while (!socket.isClosed) {
+                    val line = input.readLine() ?: break
+                    runOnUiThread {
+                        b.tvCallStatus.text = "Signaling: $line"
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                try { signalingSocket?.close() } catch (_: Exception) {}
+                signalingSocket = null
+            }
+        }.apply { start() }
+    }
+
+    private fun stopSignaling() {
+        try { signalingSocket?.close() } catch (_: Exception) {}
+        signalingSocket = null
+        signalingThread = null
+    }
+
+    // ===== ringing tone =====
 
     private fun startRingingTone() {
         if (ringtone == null) {
             val uri: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
             ringtone = RingtoneManager.getRingtone(applicationContext, uri)
         }
-        try {
-            ringtone?.play()
-        } catch (_: Exception) { }
+        try { ringtone?.play() } catch (_: Exception) {}
     }
 
     private fun stopRingingTone() {
-        try {
-            ringtone?.stop()
-        } catch (_: Exception) { }
+        try { ringtone?.stop() } catch (_: Exception) {}
     }
 
-    // ===== END CALL =====
+    // ===== end call =====
 
     private fun endCallWithConfirm() {
         AlertDialog.Builder(this)
             .setTitle("End call")
             .setMessage("Are you sure you want to end this call?")
-            .setPositiveButton("End") { _, _ ->
-                endCall()
-            }
+            .setPositiveButton("End") { _, _ -> endCall() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -217,6 +256,7 @@ class VoipCallActivity : AppCompatActivity() {
     private fun endCall() {
         stopRingingTone()
         stopAudio()
+        stopSignaling()
         b.tvCallStatus.text = "Call ended."
         Toast.makeText(this, "Call ended.", Toast.LENGTH_SHORT).show()
     }
@@ -226,5 +266,6 @@ class VoipCallActivity : AppCompatActivity() {
         uiHandler.removeCallbacksAndMessages(null)
         stopRingingTone()
         stopAudio()
+        stopSignaling()
     }
 }
